@@ -1,0 +1,8 @@
+{
+  "name": "Orbis Diplomatica",
+  "description": "Jeu de stratégie géopolitique et simulation mondiale en temps réel inspiré de Pax Historia, avec carte du monde interactive, diplomatie IA et gestion nationale.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
