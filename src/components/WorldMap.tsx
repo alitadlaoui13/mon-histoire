@@ -330,10 +330,10 @@ export const WorldMap: React.FC<WorldMapProps> = React.memo(({
         }}
       />
 
-      {/* Quick Country Search Bar (Top-Left inside Map) */}
-      <div className="absolute top-3 left-3 z-20 w-64">
+      {/* Quick Country Search Bar */}
+      <div className="absolute top-3 left-3 z-20 w-52 sm:w-64">
         <div className="relative">
-          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <Search className="w-3.5 h-3.5 text-amber-300/80 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             type="text"
             value={searchQuery}
@@ -343,12 +343,12 @@ export const WorldMap: React.FC<WorldMapProps> = React.memo(({
               setSearchQuery(e.target.value);
               setSearchOpen(true);
             }}
-            placeholder="Rechercher un pays..."
-            className="w-full pl-8 pr-3 py-1.5 text-xs bg-[#0E1726]/95 border border-white/10 rounded-md text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-amber-400/60"
+            placeholder="Localiser un État..."
+            className="w-full min-h-[38px] pl-8 pr-3 py-1.5 text-xs bg-[#081327]/92 backdrop-blur-md border border-white/15 rounded-lg text-slate-100 placeholder:text-slate-400 focus:outline-none focus:border-amber-400 shadow-lg"
           />
         </div>
         {searchOpen && searchResults.length > 0 && (
-          <div className="mt-1 bg-[#0E1726] border border-white/10 rounded-md shadow-xl overflow-hidden divide-y divide-white/5">
+          <div className="mt-1.5 bg-[#09152C]/95 backdrop-blur-md border border-white/15 rounded-lg shadow-2xl overflow-hidden divide-y divide-white/5">
             {searchResults.map((c) => (
               <button
                 key={c.id}
@@ -364,10 +364,10 @@ export const WorldMap: React.FC<WorldMapProps> = React.memo(({
                   setSearchQuery('');
                   setSearchOpen(false);
                 }}
-                className="w-full px-3 py-2 text-left text-xs flex items-center justify-between hover:bg-white/5 transition-colors"
+                className="w-full px-3 py-2 text-left text-xs flex items-center justify-between hover:bg-amber-400/10 transition-colors cursor-pointer"
               >
                 <span className="font-medium text-slate-100 truncate">{c.nameFr}</span>
-                <span className="text-[11px] text-slate-400 font-mono-tabular shrink-0 ml-2">
+                <span className="text-[11px] text-amber-300 font-mono-tabular shrink-0 ml-2">
                   {Math.round(c.gdp)} Mds $
                 </span>
               </button>
@@ -376,13 +376,13 @@ export const WorldMap: React.FC<WorldMapProps> = React.memo(({
         )}
       </div>
 
-      {/* Zoom Controls (Bottom-Right inside Map) */}
-      <div className="absolute bottom-4 right-4 z-20 flex flex-col gap-1 bg-[#0E1726]/95 border border-white/10 rounded-md p-1 shadow-lg">
+      {/* Zoom Controls */}
+      <div className="absolute right-3 bottom-3 z-20 flex flex-col gap-1 bg-[#081327]/92 backdrop-blur-md border border-white/15 rounded-lg p-1 shadow-xl">
         <button
           type="button"
           onClick={() => zoomBy(1.35)}
           title="Zoomer"
-          className="w-8 h-8 flex items-center justify-center rounded hover:bg-white/10 text-slate-200 transition-colors"
+          className="w-9 h-9 flex items-center justify-center rounded-md hover:bg-amber-400/15 text-amber-100 transition-colors cursor-pointer"
         >
           <Plus className="w-4 h-4" />
         </button>
@@ -390,7 +390,7 @@ export const WorldMap: React.FC<WorldMapProps> = React.memo(({
           type="button"
           onClick={() => zoomBy(0.75)}
           title="Dézoomer"
-          className="w-8 h-8 flex items-center justify-center rounded hover:bg-white/10 text-slate-200 transition-colors"
+          className="w-9 h-9 flex items-center justify-center rounded-md hover:bg-amber-400/15 text-amber-100 transition-colors cursor-pointer"
         >
           <Minus className="w-4 h-4" />
         </button>
@@ -398,15 +398,15 @@ export const WorldMap: React.FC<WorldMapProps> = React.memo(({
           type="button"
           onClick={resetZoom}
           title="Vue globale"
-          className="w-8 h-8 flex items-center justify-center rounded hover:bg-white/10 text-slate-200 transition-colors"
+          className="w-9 h-9 flex items-center justify-center rounded-md hover:bg-amber-400/15 text-amber-300 transition-colors cursor-pointer"
         >
           <Crosshair className="w-4 h-4" />
         </button>
       </div>
 
-      {/* Map Legend (Bottom-Left above Chronicle or inline) */}
+      {/* Map Legend */}
       {mapMode !== 'politique' && (
-        <div className="absolute top-3 left-72 z-20 hidden lg:flex items-center gap-3 px-3 py-1.5 bg-[#0E1726]/90 border border-white/10 rounded-md text-[11px] text-slate-300">
+        <div className="absolute top-3 left-60 sm:left-72 z-20 hidden xl:flex items-center gap-3 px-3 py-1.5 bg-[#081327]/92 backdrop-blur-md border border-white/15 rounded-lg text-[11px] text-slate-200">
           {mapMode === 'relations' && (
             <>
               <span className="flex items-center gap-1.5">
@@ -481,21 +481,21 @@ export const WorldMap: React.FC<WorldMapProps> = React.memo(({
         }}
       >
         <defs>
-          <radialGradient id="atlas-ocean" cx="50%" cy="48%" r="60%">
-            <stop offset="0%" stopColor="#0E223C" />
-            <stop offset="65%" stopColor="#081629" />
-            <stop offset="100%" stopColor="#040A13" />
+          <radialGradient id="atlas-ocean" cx="50%" cy="46%" r="62%">
+            <stop offset="0%" stopColor="#102952" />
+            <stop offset="62%" stopColor="#081732" />
+            <stop offset="100%" stopColor="#040B1A" />
           </radialGradient>
         </defs>
         <g transform={`translate(${transform.x}, ${transform.y}) scale(${transform.scale})`}>
-          {/* Deep Space & Natural Earth Cartographic Ocean Sphere + Graticule */}
-          <rect x={-500} y={-500} width={MAP_WIDTH + 1000} height={MAP_HEIGHT + 1000} fill="#040811" />
+          {/* Celestial Midnight & Gold Atlas Ocean Sphere + Graticule */}
+          <rect x={-500} y={-500} width={MAP_WIDTH + 1000} height={MAP_HEIGHT + 1000} fill="#030712" />
           {spherePath ? (
             <path
               d={spherePath}
               fill="url(#atlas-ocean)"
-              stroke="rgba(224, 184, 76, 0.26)"
-              strokeWidth={1.1 / Math.sqrt(transform.scale)}
+              stroke="rgba(232, 190, 92, 0.35)"
+              strokeWidth={1.25 / Math.sqrt(transform.scale)}
             />
           ) : (
             <rect x={0} y={0} width={MAP_WIDTH} height={MAP_HEIGHT} fill="url(#atlas-ocean)" />
@@ -504,14 +504,14 @@ export const WorldMap: React.FC<WorldMapProps> = React.memo(({
             <path
               d={graticulePath}
               fill="none"
-              stroke="rgba(148, 163, 184, 0.1)"
+              stroke="rgba(232, 190, 92, 0.13)"
               strokeWidth={0.45 / Math.sqrt(transform.scale)}
               className="pointer-events-none"
             />
           )}
 
           {/* Country Polygons */}
-          {features.map((feat) => {
+          {features.map((feat, featIdx) => {
             const country = world.countries[feat.countryId];
             if (!country) return null;
 
@@ -556,7 +556,7 @@ export const WorldMap: React.FC<WorldMapProps> = React.memo(({
 
             return (
               <path
-                key={feat.countryId}
+                key={`${feat.countryId}-${featIdx}`}
                 data-territory-id={country.id}
                 d={feat.svgPath}
                 fill={fill}
@@ -589,7 +589,7 @@ export const WorldMap: React.FC<WorldMapProps> = React.memo(({
 
           {/* On-Map Uppercase Country Labels (update dynamically on conquest & zoom) */}
           <g className="pointer-events-none select-none">
-            {features.map((feat) => {
+            {features.map((feat, featIdx) => {
               const country = world.countries[feat.countryId];
               if (!country) return null;
               const sovereign = world.countries[country.ownerId] || country;
@@ -604,15 +604,15 @@ export const WorldMap: React.FC<WorldMapProps> = React.memo(({
                 country.id === world.selectedTerritoryId;
 
               const minArea =
-                transform.scale >= 4.2
+                transform.scale >= 3.8
                   ? 0
-                  : transform.scale >= 2.8
-                    ? 1.2
-                    : transform.scale >= 2.0
-                      ? 4.2
-                      : transform.scale >= 1.35
-                        ? 12
-                        : 26;
+                  : transform.scale >= 2.5
+                    ? 0.9
+                    : transform.scale >= 1.8
+                      ? 3.2
+                      : transform.scale >= 1.25
+                        ? 8.5
+                        : 18;
 
               if (!isPlayerOrSelected && feat.area < minArea) return null;
 
@@ -624,7 +624,7 @@ export const WorldMap: React.FC<WorldMapProps> = React.memo(({
 
               return (
                 <text
-                  key={`lbl-${feat.countryId}`}
+                  key={`lbl-${feat.countryId}-${featIdx}`}
                   x={feat.labelPoint[0]}
                   y={feat.labelPoint[1]}
                   textAnchor="middle"
@@ -713,6 +713,81 @@ export const WorldMap: React.FC<WorldMapProps> = React.memo(({
                   cy={(agg.centroid[1] + def.centroid[1]) / 2}
                   r={3.5 / Math.sqrt(transform.scale)}
                   fill="#EF4444"
+                />
+              </g>
+            );
+          })}
+
+          {/* Living Player Decrees & Megaprojects on Map */}
+          {(world.mapProjects ?? []).map((proj) => {
+            const fromC = world.countries[proj.fromCountryId];
+            if (!fromC) return null;
+            const toC = proj.toCountryId ? world.countries[proj.toCountryId] : null;
+            const strokeColor =
+              proj.kind === 'nuclear'
+                ? '#F97316'
+                : proj.kind === 'war'
+                  ? '#EF4444'
+                  : proj.kind === 'bridge'
+                    ? '#FACC15'
+                    : proj.kind === 'trade'
+                      ? '#2DD4BF'
+                      : proj.kind === 'alliance'
+                        ? '#60A5FA'
+                        : '#EAB308';
+
+            if (!toC) {
+              return (
+                <g key={proj.id} className="pointer-events-none">
+                  <circle
+                    cx={fromC.centroid[0]}
+                    cy={fromC.centroid[1]}
+                    r={6 / Math.sqrt(transform.scale)}
+                    fill="none"
+                    stroke={strokeColor}
+                    strokeWidth={1.2 / Math.sqrt(transform.scale)}
+                    strokeOpacity={0.85}
+                  />
+                </g>
+              );
+            }
+
+            const [x1, y1] = fromC.centroid;
+            const [x2, y2] = toC.centroid;
+            const mx = (x1 + x2) / 2;
+            const my = (y1 + y2) / 2 - Math.min(36, Math.hypot(x2 - x1, y2 - y1) * 0.22);
+
+            return (
+              <g key={proj.id} className="pointer-events-none">
+                <path
+                  d={`M ${x1} ${y1} Q ${mx} ${my} ${x2} ${y2}`}
+                  fill="none"
+                  stroke={strokeColor}
+                  strokeWidth={(proj.kind === 'bridge' ? 2.4 : 1.5) / Math.sqrt(transform.scale)}
+                  strokeDasharray={proj.kind === 'bridge' ? undefined : '4 3'}
+                  strokeOpacity={0.9}
+                />
+                {proj.kind === 'nuclear' && (
+                  <circle
+                    cx={x2}
+                    cy={y2}
+                    r={9 / Math.sqrt(transform.scale)}
+                    fill="rgba(249, 115, 22, 0.25)"
+                    stroke="#FB923C"
+                    strokeWidth={1.3 / Math.sqrt(transform.scale)}
+                  />
+                )}
+                <circle
+                  cx={x1}
+                  cy={y1}
+                  r={2.5 / Math.sqrt(transform.scale)}
+                  fill={strokeColor}
+                />
+                <circle
+                  cx={x2}
+                  cy={y2}
+                  r={2.8 / Math.sqrt(transform.scale)}
+                  fill={strokeColor}
                 />
               </g>
             );

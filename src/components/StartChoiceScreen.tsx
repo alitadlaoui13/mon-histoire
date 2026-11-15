@@ -44,9 +44,9 @@ export const StartChoiceScreen: React.FC<StartChoiceScreenProps> = ({
               strokeWidth="0.5"
             />
           )}
-          {features.map((feat) => (
+          {features.map((feat, idx) => (
             <path
-              key={feat.countryId}
+              key={`${feat.countryId}-${idx}`}
               d={feat.svgPath}
               fill="#172840"
               stroke="#070E1A"

@@ -164,9 +164,9 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                 strokeWidth="0.5"
               />
             )}
-            {features.map((feat) => (
+            {features.map((feat, idx) => (
               <path
-                key={feat.countryId}
+                key={`${feat.countryId}-${idx}`}
                 d={feat.svgPath}
                 fill="url(#bg-map-gold)"
                 stroke="rgba(255, 228, 158, 0.42)"

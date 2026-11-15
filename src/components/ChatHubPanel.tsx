@@ -1,10 +1,12 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  ChevronDown,
-  Globe2,
+  ArrowLeft,
+  Coins,
   Handshake,
   Loader2,
+  MapPin,
   MessageSquareText,
+  Scale,
   Search,
   Send,
   Shield,
@@ -14,7 +16,7 @@ import {
   X,
 } from 'lucide-react';
 import {
-  formatDateFr,
+  formatFullDateFr,
   getRelation,
   getRelationStatusFr,
   isAtWarBetween,
@@ -30,8 +32,19 @@ interface ChatHubPanelProps {
   onSelectTargetCountry: (countryId: string) => void;
   onFocusCountry: (countryId: string) => void;
   onSendAiMessage: (targetId: string, message: string) => Promise<void>;
-  onCloseMobilePanel?: () => void;
+  onFormCoalition: (type: 'ALLIANCE' | 'ECONOMIC_UNION', targetId: string) => void;
+  onSignTradeDeal: (targetId: string) => void;
+  onSignNonAggression: (targetId: string) => void;
+  onSendAid: (targetId: string, amount: number) => void;
+  onDeclareWar: (targetId: string) => void;
+  onPeaceTreaty: (
+    warId: string,
+    terms: 'STATUS_QUO' | 'REPARATIONS' | 'ANNEXATION' | 'CAPITULATION',
+    forcedWinnerId?: string
+  ) => void;
+  onLaunchOffensive: (warId: string) => void;
   isAiSending: boolean;
+  feedback?: string | null;
 }
 
 type DirectoryFilter = 'all' | 'threads' | 'allies' | 'wars';
@@ -42,14 +55,32 @@ export const ChatHubPanel: React.FC<ChatHubPanelProps> = ({
   onSelectTargetCountry,
   onFocusCountry,
   onSendAiMessage,
-  onCloseMobilePanel,
+  onFormCoalition,
+  onSignTradeDeal,
+  onSignNonAggression,
+  onSendAid,
+  onDeclareWar,
+  onPeaceTreaty,
+  onLaunchOffensive,
   isAiSending,
+  feedback,
 }) => {
   const player = world.playerCountryId ? world.countries[world.playerCountryId] : null;
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<DirectoryFilter>('all');
-  const [showDirectory, setShowDirectory] = useState<boolean>(() => !selectedTargetId);
+  const [viewMode, setViewMode] = useState<'directory' | 'thread'>(() =>
+    selectedTargetId ? 'thread' : 'directory'
+  );
+  const [showTreatyBar, setShowTreatyBar] = useState(true);
+  const [confirmWarId, setConfirmWarId] = useState<string | null>(null);
   const [messageInput, setMessageInput] = useState('');
+
+  useEffect(() => {
+    if (selectedTargetId && player && selectedTargetId !== player.id) {
+      setViewMode('thread');
+      setConfirmWarId(null);
+    }
+  }, [selectedTargetId, player]);
 
   const sovereignCountries = useMemo(() => {
     if (!player) return [];
@@ -103,14 +134,13 @@ export const ChatHubPanel: React.FC<ChatHubPanelProps> = ({
     selectedTargetId !== player.id &&
     world.countries[selectedTargetId]?.ownerId === selectedTargetId
       ? world.countries[selectedTargetId]
-      : null;
-
-  const quickStripCountries = sovereignCountries.slice(0, 12);
+      : sovereignCountries[0] ?? null;
 
   const handlePickCountry = (countryId: string) => {
     onSelectTargetCountry(countryId);
     onFocusCountry(countryId);
-    setShowDirectory(false);
+    setConfirmWarId(null);
+    setViewMode('thread');
   };
 
   const handleSend = async (e: React.FormEvent) => {
@@ -129,6 +159,33 @@ export const ChatHubPanel: React.FC<ChatHubPanelProps> = ({
     ? world.threads[pairKey(player.id, validTarget.id)] || []
     : [];
 
+  const isAllied = validTarget
+    ? Boolean(sharesAlliance(world.alliances, player.id, validTarget.id, 'ALLIANCE'))
+    : false;
+  const isSameUnion = validTarget
+    ? Boolean(sharesAlliance(world.alliances, player.id, validTarget.id, 'ECONOMIC_UNION'))
+    : false;
+  const hasNap = validTarget
+    ? world.nonAggressionPacts.includes(pairKey(player.id, validTarget.id))
+    : false;
+  const hasTradeDeal = validTarget
+    ? (world.tradeDeals ?? []).some(
+        (td) =>
+          (td.exporterId === player.id && td.importerId === validTarget.id) ||
+          (td.exporterId === validTarget.id && td.importerId === player.id)
+      )
+    : false;
+
+  const isWarAgg = activeWar
+    ? activeWar.aggressorId === player.id || activeWar.aggressorAllies.includes(player.id)
+    : false;
+  const playerWarAdvantage = activeWar ? (isWarAgg ? activeWar.warScore : -activeWar.warScore) : 0;
+  const offensiveOrdered = activeWar
+    ? isWarAgg
+      ? Boolean(activeWar.offensiveBoostAggressor)
+      : Boolean(activeWar.offensiveBoostDefender)
+    : false;
+
   const quickPrompts = activeWar
     ? [
         'Nous proposons un cessez-le-feu immédiat et des négociations de paix.',
@@ -141,104 +198,35 @@ export const ChatHubPanel: React.FC<ChatHubPanelProps> = ({
       ];
 
   return (
-    <div className="flex flex-col h-full bg-gradient-to-b from-[#0A1529] via-[#0B162C] to-[#081020] text-slate-100">
-      {/* Salon Header */}
-      <div className="px-4 py-3 border-b border-amber-400/20 bg-gradient-to-r from-[#0E1E3A] to-[#0A162B] flex items-center justify-between gap-2 shrink-0">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-amber-400/20 to-amber-600/10 border border-amber-400/40 flex items-center justify-center shrink-0">
-            <MessageSquareText className="w-4.5 h-4.5 text-amber-300" />
-          </div>
-          <div className="min-w-0">
-            <h2 className="text-sm font-display font-semibold text-amber-100 truncate">
-              Chancellerie &amp; Chat
-            </h2>
-            <p className="text-[11px] text-slate-400 truncate">
-              Correspondance directe avec les dirigeants
-            </p>
-          </div>
-        </div>
+    <div className="h-full flex flex-col bg-[#0B1322] text-slate-100 min-h-0">
+      {viewMode === 'directory' || !validTarget ? (
+        <>
+          {/* Directory Search & Filter Header */}
+          <div className="p-3 border-b border-white/10 space-y-2.5 shrink-0 bg-[#0D1628]">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-xs font-semibold text-amber-200">
+                <MessageSquareText className="w-4 h-4 text-amber-300 shrink-0" />
+                <span>Chancelleries étrangères</span>
+              </div>
+              {validTarget && (
+                <button
+                  type="button"
+                  onClick={() => setViewMode('thread')}
+                  className="text-[11px] font-medium text-amber-300 hover:text-amber-200 flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                >
+                  <span>Reprendre avec {validTarget.nameFr}</span>
+                </button>
+              )}
+            </div>
 
-        <div className="flex items-center gap-1.5 shrink-0">
-          <button
-            type="button"
-            onClick={() => setShowDirectory((prev) => !prev)}
-            className={`min-h-[38px] px-3 py-1.5 rounded-lg text-xs font-medium border flex items-center gap-1.5 transition-colors cursor-pointer ${
-              showDirectory
-                ? 'bg-amber-500/20 border-amber-400/50 text-amber-200'
-                : 'bg-[#122444] hover:bg-[#172D54] border-amber-400/25 text-slate-200'
-            }`}
-          >
-            <Globe2 className="w-3.5 h-3.5 text-amber-300" />
-            <span>{showDirectory && validTarget ? 'Retour chat' : 'Pays'}</span>
-          </button>
-
-          {onCloseMobilePanel && (
-            <button
-              type="button"
-              onClick={onCloseMobilePanel}
-              className="lg:hidden min-h-[38px] min-w-[38px] rounded-lg bg-[#122444] border border-white/15 text-slate-300 hover:text-white flex items-center justify-center cursor-pointer"
-              aria-label="Voir la carte"
-              title="Voir la carte"
-            >
-              <ChevronDown className="w-4 h-4" />
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Horizontal Quick-Flag Bar when chatting */}
-      {!showDirectory && quickStripCountries.length > 0 && (
-        <div className="px-3 py-2 border-b border-white/10 bg-[#091224] flex items-center gap-2 overflow-x-auto shrink-0">
-          {quickStripCountries.map((c) => {
-            const isSelected = validTarget?.id === c.id;
-            const atWar = Boolean(isAtWarBetween(world, player.id, c.id));
-            const allied = sharesAlliance(world.alliances, player.id, c.id, 'ALLIANCE');
-            const threadCount = (world.threads[pairKey(player.id, c.id)] || []).length;
-            return (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => handlePickCountry(c.id)}
-                title={c.nameFr}
-                className={`min-h-[40px] px-2.5 py-1.5 rounded-lg border flex items-center gap-2 shrink-0 transition-all cursor-pointer ${
-                  isSelected
-                    ? 'bg-gradient-to-b from-[#1A315B] to-[#122343] border-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.22)] text-amber-100'
-                    : 'bg-[#0F1C36] hover:bg-[#152647] border-white/10 text-slate-300'
-                }`}
-              >
-                <CountryFlag
-                  flag={c.flag}
-                  fallbackColor={c.color}
-                  name={c.nameFr}
-                  className="w-6 h-4 rounded-xs border border-white/20 shrink-0"
-                />
-                <span className="text-xs font-medium whitespace-nowrap max-w-[105px] truncate">
-                  {c.nameFr}
-                </span>
-                {atWar && <Swords className="w-3 h-3 text-rose-400 shrink-0" />}
-                {!atWar && allied && <Shield className="w-3 h-3 text-sky-400 shrink-0" />}
-                {!atWar && !allied && threadCount > 0 && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-                )}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {/* DIRECTORY VIEW OR CONVERSATION VIEW */}
-      {showDirectory || !validTarget ? (
-        <div className="flex-1 flex flex-col min-h-0">
-          {/* Search & Filters */}
-          <div className="p-3 border-b border-white/10 bg-[#0C1830] space-y-2.5 shrink-0">
             <div className="relative">
-              <Search className="w-4 h-4 text-amber-300/70 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <Search className="w-4 h-4 text-amber-300/75 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Rechercher un pays, capitale ou dirigeant..."
-                className="w-full min-h-[42px] pl-9 pr-8 py-2 text-xs bg-[#081122] border border-amber-400/25 rounded-lg text-white placeholder:text-slate-500 focus:outline-none focus:border-amber-400"
+                placeholder="Rechercher un pays, dirigeant, capitale..."
+                className="w-full min-h-[40px] pl-9 pr-8 py-2 text-xs bg-[#08101E] border border-white/15 rounded-lg text-white placeholder:text-slate-500 focus:outline-none focus:border-amber-400"
               />
               {search && (
                 <button
@@ -252,7 +240,7 @@ export const ChatHubPanel: React.FC<ChatHubPanelProps> = ({
               )}
             </div>
 
-            <div className="grid grid-cols-4 gap-1 p-1 bg-[#081020] border border-white/10 rounded-lg">
+            <div className="grid grid-cols-4 gap-1 p-1 bg-[#070E1B] border border-white/10 rounded-lg">
               {(
                 [
                   ['all', 'Tous'],
@@ -265,10 +253,10 @@ export const ChatHubPanel: React.FC<ChatHubPanelProps> = ({
                   key={key}
                   type="button"
                   onClick={() => setFilter(key)}
-                  className={`min-h-[34px] px-2 py-1 text-[11px] font-medium rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+                  className={`min-h-[30px] px-1.5 py-1 text-[11px] font-medium rounded-md transition-colors cursor-pointer whitespace-nowrap ${
                     filter === key
-                      ? 'bg-gradient-to-b from-amber-400/25 to-amber-500/15 text-amber-200 border border-amber-400/40'
-                      : 'text-slate-400 hover:text-slate-200'
+                      ? 'bg-[#17294A] text-amber-200 border border-amber-400/35'
+                      : 'text-slate-400 hover:text-slate-200 border border-transparent'
                   }`}
                 >
                   {label}
@@ -277,14 +265,15 @@ export const ChatHubPanel: React.FC<ChatHubPanelProps> = ({
             </div>
           </div>
 
-          {/* Country Directory List with Prominent Flags */}
-          <div className="flex-1 overflow-y-auto p-3 space-y-2">
+          {/* Country List */}
+          <div className="flex-1 overflow-y-auto p-2.5 space-y-1.5 min-h-0">
             {filteredCountries.length === 0 ? (
               <div className="text-center py-8 px-4 text-xs text-slate-400">
                 Aucun État ne correspond à ce filtre.
               </div>
             ) : (
               filteredCountries.map((c) => {
+                const isActive = validTarget?.id === c.id;
                 const rel = getRelation(world, player.id, c.id);
                 const war = Boolean(isAtWarBetween(world, player.id, c.id));
                 const allied = sharesAlliance(world.alliances, player.id, c.id, 'ALLIANCE');
@@ -296,14 +285,18 @@ export const ChatHubPanel: React.FC<ChatHubPanelProps> = ({
                     key={c.id}
                     type="button"
                     onClick={() => handlePickCountry(c.id)}
-                    className="w-full min-h-[58px] p-2.5 rounded-xl bg-gradient-to-r from-[#0F1E38] to-[#0C172C] hover:from-[#162A4E] hover:to-[#11203D] border border-white/10 hover:border-amber-400/45 flex items-center justify-between gap-3 text-left transition-all cursor-pointer group"
+                    className={`w-full min-h-[56px] p-2.5 rounded-lg border flex items-center justify-between gap-2.5 text-left transition-colors cursor-pointer group ${
+                      isActive
+                        ? 'bg-[#142544] border-amber-400/60'
+                        : 'bg-[#0F1B30] hover:bg-[#152440] border-white/10 hover:border-amber-400/35'
+                    }`}
                   >
-                    <div className="flex items-center gap-3 min-w-0">
+                    <div className="flex items-center gap-2.5 min-w-0">
                       <CountryFlag
                         flag={c.flag}
                         fallbackColor={c.color}
                         name={c.nameFr}
-                        className="w-10 h-7 rounded-sm border border-amber-300/30 shadow-sm shrink-0"
+                        className="w-10 h-6.5 rounded-xs border border-amber-300/35 shrink-0"
                       />
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5">
@@ -322,7 +315,7 @@ export const ChatHubPanel: React.FC<ChatHubPanelProps> = ({
                       </div>
                     </div>
 
-                    <div className="flex flex-col items-end gap-1 shrink-0">
+                    <div className="flex flex-col items-end gap-0.5 shrink-0">
                       <span
                         className={`text-xs font-mono-tabular font-semibold ${
                           war
@@ -336,13 +329,11 @@ export const ChatHubPanel: React.FC<ChatHubPanelProps> = ({
                       >
                         {rel > 0 ? `+${rel}` : rel}
                       </span>
-                      {msgCount > 0 ? (
+                      {msgCount > 0 && (
                         <span className="text-[10px] text-amber-300 flex items-center gap-1 font-mono-tabular">
                           <MessageSquareText className="w-3 h-3" />
                           {msgCount}
                         </span>
-                      ) : (
-                        <span className="text-[10px] text-slate-500">Discuter</span>
                       )}
                     </div>
                   </button>
@@ -350,28 +341,30 @@ export const ChatHubPanel: React.FC<ChatHubPanelProps> = ({
               })
             )}
           </div>
-        </div>
+        </>
       ) : (
-        /* ACTIVE DIPLOMATIC CHAT CONVERSATION */
-        <div className="flex-1 flex flex-col min-h-0">
-          {/* Bilateral Diplomatic Banner with Both Flags */}
-          <div className="p-3.5 border-b border-amber-400/20 bg-gradient-to-r from-[#10213F] via-[#0E1C35] to-[#10213F] shrink-0 space-y-2.5">
+        <>
+          {/* Active Country Header */}
+          <div className="p-3 border-b border-white/10 bg-[#0F1B30] shrink-0 space-y-2">
             <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="flex items-center -space-x-2 shrink-0">
-                  <CountryFlag
-                    flag={player.flag}
-                    fallbackColor={player.color}
-                    name={player.nameFr}
-                    className="w-7 h-5 rounded-xs border border-amber-300/60 shadow-sm z-10"
-                  />
-                  <CountryFlag
-                    flag={validTarget.flag}
-                    fallbackColor={validTarget.color}
-                    name={validTarget.nameFr}
-                    className="w-10 h-7 rounded-sm border border-amber-300/60 shadow-md"
-                  />
-                </div>
+              <div className="flex items-center gap-2 min-w-0">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('directory')}
+                  className="min-h-[34px] px-2 py-1 rounded-lg bg-[#162746] hover:bg-[#1E355E] border border-white/10 text-xs text-amber-200 flex items-center gap-1 shrink-0 cursor-pointer whitespace-nowrap"
+                  title="Changer de pays"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>Pays</span>
+                </button>
+
+                <CountryFlag
+                  flag={validTarget.flag}
+                  fallbackColor={validTarget.color}
+                  name={validTarget.nameFr}
+                  className="w-9 h-6 rounded-xs border border-amber-300/50 shrink-0"
+                />
+
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5">
                     <h3 className="text-sm font-display font-semibold text-white truncate">
@@ -381,25 +374,46 @@ export const ChatHubPanel: React.FC<ChatHubPanelProps> = ({
                   </div>
                   <p className="text-[11px] text-slate-300 truncate">
                     {validTarget.leaderTitle} {validTarget.leaderName} ·{' '}
-                    <span className="text-amber-300/90">{validTarget.personality}</span>
+                    <span className="text-amber-300">{validTarget.personality}</span>
                   </p>
                 </div>
               </div>
 
-              <div className="min-w-0">
-                <span className="text-[10px] uppercase tracking-wider text-amber-300/80 font-semibold">
-                  {validTarget.capital}
-                </span>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => onFocusCountry(validTarget.id)}
+                  className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 hover:text-amber-300 cursor-pointer"
+                  title="Centrer sur la carte"
+                  aria-label="Centrer sur la carte"
+                >
+                  <MapPin className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowTreatyBar((v) => !v)}
+                  aria-expanded={showTreatyBar}
+                  className={`px-2 py-1 rounded-lg border text-[11px] font-semibold flex items-center gap-1 cursor-pointer whitespace-nowrap ${
+                    showTreatyBar
+                      ? 'bg-amber-400/15 border-amber-400/45 text-amber-200'
+                      : 'bg-white/5 border-white/10 text-slate-300 hover:text-white'
+                  }`}
+                >
+                  <Scale className="w-3 h-3 shrink-0" />
+                  <span>Traités</span>
+                </button>
               </div>
             </div>
 
-            <div className="flex items-center justify-between text-[11px] pt-0.5">
-              <span className="text-slate-400 flex items-center gap-1.5 truncate">
-                <Users className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                <span className="truncate">{validTarget.regime}</span>
+            <div className="flex items-center justify-between gap-2 text-[11px] text-slate-400">
+              <span className="flex items-center gap-1.5 truncate">
+                <Users className="w-3 h-3 shrink-0" />
+                <span className="truncate">
+                  {validTarget.regime} · {validTarget.capital}
+                </span>
               </span>
               <span
-                className={`font-semibold font-mono-tabular shrink-0 ${
+                className={`font-mono-tabular font-semibold whitespace-nowrap ${
                   relStatus.tone === 'emerald'
                     ? 'text-emerald-400'
                     : relStatus.tone === 'sky'
@@ -414,20 +428,135 @@ export const ChatHubPanel: React.FC<ChatHubPanelProps> = ({
                 {relStatus.label} ({relation > 0 ? `+${relation}` : relation})
               </span>
             </div>
+
+            {/* Direct Treaty & Alliance Negotiation Bar */}
+            {showTreatyBar && (
+              <div className="pt-2 border-t border-white/10 space-y-1.5">
+                {activeWar ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      disabled={offensiveOrdered}
+                      onClick={() => onLaunchOffensive(activeWar.id)}
+                      className="min-h-[34px] px-2.5 py-1 text-[11px] font-semibold bg-rose-600 hover:bg-rose-500 disabled:opacity-45 text-white rounded-lg cursor-pointer whitespace-nowrap"
+                    >
+                      {offensiveOrdered ? 'Offensive prête' : 'Lancer offensive (+25%)'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onPeaceTreaty(activeWar.id, 'STATUS_QUO')}
+                      className="min-h-[34px] px-2.5 py-1 text-[11px] font-medium bg-[#182947] hover:bg-[#20365D] border border-white/15 text-white rounded-lg cursor-pointer whitespace-nowrap"
+                    >
+                      Paix blanche
+                    </button>
+                    {playerWarAdvantage >= 15 && (
+                      <button
+                        type="button"
+                        onClick={() => onPeaceTreaty(activeWar.id, 'REPARATIONS')}
+                        className="min-h-[34px] px-2.5 py-1 text-[11px] font-medium bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-200 rounded-lg cursor-pointer whitespace-nowrap"
+                      >
+                        Exiger réparations
+                      </button>
+                    )}
+                    {playerWarAdvantage >= 30 && (
+                      <button
+                        type="button"
+                        onClick={() => onPeaceTreaty(activeWar.id, 'ANNEXATION')}
+                        className="min-h-[34px] px-2.5 py-1 text-[11px] font-semibold bg-rose-500/25 hover:bg-rose-500/40 border border-rose-400/40 text-rose-100 rounded-lg cursor-pointer whitespace-nowrap"
+                      >
+                        Annexer territoire
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      disabled={isAllied}
+                      onClick={() => onFormCoalition('ALLIANCE', validTarget.id)}
+                      className="min-h-[34px] px-2.5 py-1 text-[11px] font-medium bg-[#152645] hover:bg-[#1D3560] disabled:opacity-50 border border-sky-400/30 text-sky-100 rounded-lg flex items-center gap-1 cursor-pointer disabled:cursor-default whitespace-nowrap"
+                    >
+                      <Shield className="w-3 h-3 text-sky-300 shrink-0" />
+                      <span>{isAllied ? 'Alliés' : 'Alliance (+40)'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isSameUnion}
+                      onClick={() => onFormCoalition('ECONOMIC_UNION', validTarget.id)}
+                      className="min-h-[34px] px-2.5 py-1 text-[11px] font-medium bg-[#152645] hover:bg-[#1D3560] disabled:opacity-50 border border-emerald-400/30 text-emerald-100 rounded-lg flex items-center gap-1 cursor-pointer disabled:cursor-default whitespace-nowrap"
+                    >
+                      <Handshake className="w-3 h-3 text-emerald-300 shrink-0" />
+                      <span>{isSameUnion ? 'Union active' : 'Union éco (+25)'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={hasTradeDeal}
+                      onClick={() => onSignTradeDeal(validTarget.id)}
+                      className="min-h-[34px] px-2.5 py-1 text-[11px] font-medium bg-[#152645] hover:bg-[#1D3560] disabled:opacity-50 border border-white/15 text-slate-100 rounded-lg cursor-pointer disabled:cursor-default whitespace-nowrap"
+                    >
+                      {hasTradeDeal ? 'Commerce actif' : 'Accord commercial'}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={hasNap}
+                      onClick={() => onSignNonAggression(validTarget.id)}
+                      className="min-h-[34px] px-2.5 py-1 text-[11px] font-medium bg-[#152645] hover:bg-[#1D3560] disabled:opacity-50 border border-white/15 text-slate-100 rounded-lg cursor-pointer disabled:cursor-default whitespace-nowrap"
+                    >
+                      {hasNap ? 'Non-agression signée' : 'Pacte non-agression'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onSendAid(validTarget.id, 10)}
+                      className="min-h-[34px] px-2.5 py-1 text-[11px] font-medium bg-[#152645] hover:bg-[#1D3560] border border-amber-400/30 text-amber-200 rounded-lg flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                    >
+                      <Coins className="w-3 h-3 shrink-0" />
+                      <span>Aide 10 Md$</span>
+                    </button>
+                    {confirmWarId === validTarget.id ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onDeclareWar(validTarget.id);
+                          setConfirmWarId(null);
+                        }}
+                        className="min-h-[34px] px-2.5 py-1 text-[11px] font-bold bg-rose-600 hover:bg-rose-500 text-white rounded-lg cursor-pointer whitespace-nowrap"
+                      >
+                        Confirmer guerre
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmWarId(validTarget.id)}
+                        className="min-h-[34px] px-2.5 py-1 text-[11px] font-medium bg-rose-500/15 hover:bg-rose-500/25 border border-rose-400/35 text-rose-200 rounded-lg flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                      >
+                        <Swords className="w-3 h-3 shrink-0" />
+                        <span>Guerre</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
+          {feedback && (
+            <div className="px-3 py-1.5 bg-amber-500/15 border-b border-amber-400/30 text-[11px] text-amber-200 shrink-0">
+              {feedback}
+            </div>
+          )}
+
           {/* Messages Stream */}
-          <div className="flex-1 overflow-y-auto p-3.5 space-y-3">
+          <div className="flex-1 overflow-y-auto p-3 space-y-2.5 min-h-0">
             {messages.length === 0 ? (
-              <div className="p-3.5 rounded-xl bg-[#0F1E38]/90 border border-amber-400/20 space-y-3">
+              <div className="p-3.5 rounded-xl bg-[#0F1D36] border border-white/10 space-y-2.5">
                 <div className="flex items-center gap-2 text-xs font-semibold text-amber-200">
                   <Sparkles className="w-4 h-4 text-amber-300 shrink-0" />
                   <span>Ouverture du canal diplomatique</span>
                 </div>
                 <p className="text-xs text-slate-300 leading-relaxed">
-                  Adressez une dépêche officielle à {validTarget.leaderTitle}{' '}
-                  {validTarget.leaderName}. Votre message influencera les relations et les
-                  traités.
+                  Écrivez directement à {validTarget.leaderTitle} {validTarget.leaderName}. Vos
+                  propos influencent vos relations et permettent de négocier alliances, accords ou
+                  cessez-le-feu.
                 </p>
                 <div className="space-y-1.5 pt-1">
                   {quickPrompts.map((qp) => (
@@ -435,7 +564,7 @@ export const ChatHubPanel: React.FC<ChatHubPanelProps> = ({
                       key={qp}
                       type="button"
                       onClick={() => setMessageInput(qp)}
-                      className="w-full min-h-[40px] text-left text-xs px-3 py-2 bg-[#142748] hover:bg-[#1B335D] border border-white/10 hover:border-amber-400/40 text-slate-100 rounded-lg transition-colors cursor-pointer"
+                      className="w-full min-h-[38px] text-left text-xs px-3 py-2 bg-[#142646] hover:bg-[#1B335E] border border-white/10 hover:border-amber-400/35 text-slate-100 rounded-lg transition-colors cursor-pointer"
                     >
                       « {qp} »
                     </button>
@@ -446,26 +575,28 @@ export const ChatHubPanel: React.FC<ChatHubPanelProps> = ({
               messages.map((m) => (
                 <div
                   key={m.id}
-                  className={`p-3 rounded-xl text-xs leading-relaxed ${
+                  className={`p-3 rounded-xl text-xs leading-relaxed max-w-[92%] ${
                     m.sender === 'player'
-                      ? 'bg-gradient-to-br from-amber-500/20 to-amber-600/10 border border-amber-400/35 text-amber-50 ml-5'
+                      ? 'bg-amber-500/15 border border-amber-400/35 text-amber-50 ml-auto'
                       : m.sender === 'system'
-                        ? 'bg-white/5 border border-white/10 text-slate-300 text-[11px] text-center'
-                        : 'bg-gradient-to-br from-[#122444] to-[#0E1C36] border border-sky-400/20 text-slate-100 mr-5'
+                        ? 'bg-white/5 border border-white/10 text-slate-300 text-[11px] text-center mx-auto'
+                        : 'bg-[#122240] border border-sky-400/25 text-slate-100 mr-auto'
                   }`}
                 >
                   {m.sender !== 'system' && (
-                    <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1.5">
-                      <span className="font-semibold text-amber-200/90 flex items-center gap-1.5">
+                    <div className="flex items-center justify-between gap-2 text-[11px] text-slate-400 mb-1">
+                      <span className="font-semibold text-amber-200 flex items-center gap-1.5 truncate">
                         <CountryFlag
                           flag={m.sender === 'player' ? player.flag : validTarget.flag}
-                          fallbackColor={m.sender === 'player' ? player.color : validTarget.color}
+                          fallbackColor={
+                            m.sender === 'player' ? player.color : validTarget.color
+                          }
                           name={m.senderLabel}
-                          className="w-4 h-2.5 rounded-xs border border-white/20 shrink-0"
+                          className="w-4.5 h-3 rounded-xs border border-white/25 shrink-0"
                         />
-                        {m.senderLabel}
+                        <span className="truncate">{m.senderLabel}</span>
                       </span>
-                      <span className="font-mono-tabular">{m.dateLabel}</span>
+                      <span className="font-mono-tabular shrink-0">{m.dateLabel}</span>
                     </div>
                   )}
                   <p>{m.text}</p>
@@ -474,17 +605,17 @@ export const ChatHubPanel: React.FC<ChatHubPanelProps> = ({
             )}
 
             {isAiSending && (
-              <div className="flex items-center gap-2 text-xs text-amber-200/90 px-2 py-1">
+              <div className="flex items-center gap-2 text-xs text-amber-200 px-1 py-1">
                 <Loader2 className="w-4 h-4 animate-spin text-amber-300" />
                 <span>La chancellerie de {validTarget.nameFr} rédige sa réponse...</span>
               </div>
             )}
           </div>
 
-          {/* Diplomatic Compose Form */}
+          {/* Compose Form */}
           <form
             onSubmit={handleSend}
-            className="p-3 border-t border-amber-400/20 bg-[#0A1428] shrink-0 space-y-2"
+            className="p-3 border-t border-white/10 bg-[#091222] shrink-0 space-y-2"
           >
             {messages.length > 0 && (
               <div className="flex gap-1.5 overflow-x-auto pb-0.5">
@@ -493,9 +624,9 @@ export const ChatHubPanel: React.FC<ChatHubPanelProps> = ({
                     key={qp}
                     type="button"
                     onClick={() => setMessageInput(qp)}
-                    className="px-2.5 py-1 text-[11px] rounded-md bg-[#132545] hover:bg-[#1B3460] border border-white/10 text-slate-300 whitespace-nowrap shrink-0 cursor-pointer"
+                    className="px-2 py-1 text-[11px] rounded-md bg-[#132545] hover:bg-[#1B3460] border border-white/10 text-slate-300 whitespace-nowrap shrink-0 cursor-pointer"
                   >
-                    Suggestion {idx + 1}
+                    Modèle {idx + 1}
                   </button>
                 ))}
               </div>
@@ -507,24 +638,25 @@ export const ChatHubPanel: React.FC<ChatHubPanelProps> = ({
                 onChange={(e) => setMessageInput(e.target.value)}
                 placeholder={`Écrire à ${validTarget.nameFr}...`}
                 disabled={isAiSending}
-                className="flex-1 min-h-[44px] px-3.5 py-2 text-xs bg-[#11203D] border border-amber-400/25 rounded-xl text-white placeholder:text-slate-500 focus:outline-none focus:border-amber-400"
+                className="flex-1 min-h-[44px] px-3.5 py-2 text-xs bg-[#101F3A] border border-white/15 rounded-lg text-white placeholder:text-slate-500 focus:outline-none focus:border-amber-400"
               />
               <button
                 type="submit"
                 disabled={!messageInput.trim() || isAiSending}
-                className="min-h-[44px] min-w-[48px] px-4 py-2 bg-gradient-to-b from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 disabled:opacity-40 text-slate-950 font-semibold rounded-xl transition-all cursor-pointer disabled:cursor-default shrink-0 flex items-center justify-center shadow-[0_0_16px_rgba(245,158,11,0.25)]"
+                className="min-h-[44px] min-w-[48px] px-3.5 py-2 bg-gradient-to-b from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 disabled:opacity-40 text-slate-950 font-bold rounded-lg transition-all cursor-pointer disabled:cursor-default shrink-0 flex items-center justify-center gap-1.5"
                 title="Envoyer la dépêche"
                 aria-label="Envoyer la dépêche"
               >
                 <Send className="w-4 h-4" />
+                <span className="hidden sm:inline text-xs">Envoyer</span>
               </button>
             </div>
-            <div className="text-[10px] text-slate-500 flex items-center justify-between px-0.5">
-              <span>Canal chiffré · {formatDateFr(world.year, world.month)}</span>
-              <span>Réponse immédiate</span>
+            <div className="text-[10px] text-slate-500 flex items-center justify-between">
+              <span>{formatFullDateFr(world.year, world.month, world.day)}</span>
+              <span>Chancellerie active</span>
             </div>
           </form>
-        </div>
+        </>
       )}
     </div>
   );

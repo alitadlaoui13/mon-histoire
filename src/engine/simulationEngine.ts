@@ -33,6 +33,43 @@ export function formatDateFr(year: number, month: number): string {
   return `${MONTHS_FR[(month - 1) % 12]} ${year}`;
 }
 
+export function formatFullDateFr(year: number, month: number, day = 1): string {
+  const safeDay = Math.max(1, Math.min(30, Math.round(day)));
+  return `${safeDay} ${MONTHS_FR[(month - 1) % 12]} ${year}`;
+}
+
+export function advanceDays(state: WorldState, days: number): WorldState {
+  if (state.phase !== 'PLAYING' || days <= 0) return state;
+  let current = state;
+  let totalDay = (state.day ?? 1) + Math.round(days);
+
+  while (totalDay > 30) {
+    totalDay -= 30;
+    current = advanceMonth(current);
+    if (current.pendingCrisis || current.pendingWarOutcome) {
+      break;
+    }
+  }
+
+  return {
+    ...current,
+    day: Math.max(1, Math.min(30, totalDay)),
+  };
+}
+
+export function advanceMonths(state: WorldState, months: number): WorldState {
+  if (state.phase !== 'PLAYING' || months <= 0) return state;
+  let current = state;
+  for (let i = 0; i < months; i++) {
+    if (current.pendingCrisis || current.pendingWarOutcome) break;
+    current = advanceMonth(current);
+  }
+  return {
+    ...current,
+    day: state.day ?? 1,
+  };
+}
+
 export function pairKey(a: string, b: string): string {
   return a < b ? `${a}|${b}` : `${b}|${a}`;
 }

@@ -1,5 +1,5 @@
 export function getApiBaseUrl(): string {
-  const raw = import.meta.env.VITE_API_BASE_URL;
+  const raw = import.meta.env?.VITE_API_BASE_URL;
   if (typeof raw !== 'string') return '';
   return raw.trim().replace(/\/+$/, '');
 }

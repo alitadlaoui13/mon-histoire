@@ -1,25 +1,55 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Crown, MessageSquareText, RotateCcw } from 'lucide-react';
+import {
+  BarChart3,
+  Calendar,
+  ChevronDown,
+  ChevronUp,
+  Crown,
+  FastForward,
+  Flag,
+  Loader2,
+  MessageSquareText,
+  Pause,
+  Play,
+  RotateCcw,
+  Sparkles,
+} from 'lucide-react';
+import { ActionHubPanel } from './components/ActionHubPanel';
 import { ChatHubPanel } from './components/ChatHubPanel';
-import { ActionHubPanel, ActionSubView } from './components/ActionHubPanel';
+import { CountryFlag, PRESET_NATION_IMAGES } from './components/CountryFlag';
+import { CountryInspectorPopup } from './components/CountryInspectorPopup';
+import { CrisisModal } from './components/CrisisModal';
+import { CustomNationPanel, TutorialStepId } from './components/CustomNationPanel';
 import { NationSelectPanel } from './components/NationSelectPanel';
+import { NationalPanel } from './components/NationalPanel';
+import { SimulationSummaryModal } from './components/SimulationSummaryModal';
+import { StartChoiceScreen } from './components/StartChoiceScreen';
+import { PickerToolMode, TerritoryPickerModal } from './components/TerritoryPickerModal';
+import { WarOutcomeModal } from './components/WarOutcomeModal';
+import { GameUiSettings, WelcomeScreen } from './components/WelcomeScreen';
 import { WorldChronicle } from './components/WorldChronicle';
 import { WorldMap } from './components/WorldMap';
 import { WorldStatsModal } from './components/WorldStatsModal';
-import { CrisisModal } from './components/CrisisModal';
-import { WarOutcomeModal } from './components/WarOutcomeModal';
-import { YearSimulatorBar } from './components/YearSimulatorBar';
-import { SimulationSummaryModal } from './components/SimulationSummaryModal';
-import { GameUiSettings, WelcomeScreen } from './components/WelcomeScreen';
-import { StartChoiceScreen } from './components/StartChoiceScreen';
-import { CustomNationPanel, TutorialStepId } from './components/CustomNationPanel';
-import { CountryFlag, PRESET_NATION_IMAGES } from './components/CountryFlag';
-import { PickerToolMode, TerritoryPickerModal } from './components/TerritoryPickerModal';
 import {
+  buildLocalCrisisEvent,
+  buildLocalDiplomaticReply,
+  DiplomacyReplyResult,
+} from './engine/diplomacyFallback';
+import {
+  applyFreeActionEffect,
+  extractMentionedCountries,
+  FreeActionEffect,
+  FreeActionLogEntry,
+  interpretFreeActionLocally,
+} from './engine/freeActionEngine';
+import {
+  advanceDays,
   advanceMonth,
+  advanceMonths,
   declareWarBetween,
   enactNationalDirective,
   formatDateFr,
+  formatFullDateFr,
   formTreatyCoalition,
   getCountryTotalStats,
   getRelation,
@@ -39,20 +69,8 @@ import {
   startGameWithCustomCountry,
   updatePlayerPolicy,
 } from './engine/simulationEngine';
-import {
-  buildLocalCrisisEvent,
-  buildLocalDiplomaticReply,
-  DiplomacyReplyResult,
-} from './engine/diplomacyFallback';
-import {
-  applyFreeActionEffect,
-  extractMentionedCountries,
-  FreeActionEffect,
-  FreeActionLogEntry,
-  interpretFreeActionLocally,
-} from './engine/freeActionEngine';
-import { buildApiUrl, shouldAttemptBackendApi } from './lib/apiConfig';
 import { createInitialWorldState, getMapData } from './engine/worldInit';
+import { buildApiUrl, shouldAttemptBackendApi } from './lib/apiConfig';
 import {
   CountryPolicy,
   CustomCountryConfig,
@@ -62,6 +80,7 @@ import {
 } from './types/game';
 
 type SetupMode = 'CHOOSE_MODE' | 'EXISTING' | 'CREATE_CUSTOM';
+type RightDeckTab = 'chat' | 'action' | 'nation';
 
 function createDefaultCustomConfig(): CustomCountryConfig {
   return {
@@ -110,8 +129,10 @@ export default function App() {
           return {
             ...fresh,
             ...parsed,
+            day: parsed.day ?? 1,
             countries: { ...fresh.countries, ...parsed.countries },
             tradeDeals: parsed.tradeDeals ?? [],
+            mapProjects: parsed.mapProjects ?? [],
             selectedTerritoryId: parsed.selectedTerritoryId ?? parsed.selectedCountryId,
           };
         }
@@ -141,9 +162,9 @@ export default function App() {
   const [isSimulating, setIsSimulating] = useState(false);
   const [simSummary, setSimSummary] = useState<SimulationSummary | null>(null);
   const [showStats, setShowStats] = useState(false);
-  const [activeHub, setActiveHub] = useState<'CHAT' | 'ACTION'>('ACTION');
-  const [actionSubView, setActionSubView] = useState<ActionSubView>('free');
-  const [mobileSheetOpen, setMobileSheetOpen] = useState(true);
+  const [rightTab, setRightTab] = useState<RightDeckTab>('action');
+  const [mobileDeckExpanded, setMobileDeckExpanded] = useState(true);
+  const [inspectorDismissed, setInspectorDismissed] = useState(false);
   const [actionLogs, setActionLogs] = useState<FreeActionLogEntry[]>([]);
   const [isExecutingFreeAction, setIsExecutingFreeAction] = useState(false);
   const [isAiSending, setIsAiSending] = useState(false);
@@ -198,10 +219,24 @@ export default function App() {
     }
   }, [world.year, targetYear, isSimulating]);
 
+  const handleAdvanceDays = useCallback((days: number) => {
+    setWorld((prev) => {
+      if (prev.phase !== 'PLAYING' || prev.pendingCrisis || prev.pendingWarOutcome) return prev;
+      return advanceDays(prev, days);
+    });
+  }, []);
+
   const handleAdvanceMonth = useCallback(() => {
     setWorld((prev) => {
       if (prev.phase !== 'PLAYING' || prev.pendingCrisis || prev.pendingWarOutcome) return prev;
       return advanceMonth(prev);
+    });
+  }, []);
+
+  const handleAdvanceMonths = useCallback((months: number) => {
+    setWorld((prev) => {
+      if (prev.phase !== 'PLAYING' || prev.pendingCrisis || prev.pendingWarOutcome) return prev;
+      return advanceMonths(prev, months);
     });
   }, []);
 
@@ -249,27 +284,15 @@ export default function App() {
     setSimSummary(summary);
     setIsSimulating(false);
     showToast(`Simulation terminée : ${summary.endDateLabel} atteint.`);
-  }, [
-    isSimulating,
-    world,
-    targetYear,
-    showToast,
-  ]);
+  }, [isSimulating, world, targetYear, showToast]);
 
   const handleSelectCountry = useCallback((countryId: string, territoryId?: string) => {
-    setWorld((prev) => {
-      if (prev.phase === 'PLAYING' && prev.playerCountryId) {
-        setActionSubView((curr) =>
-          curr === 'free' ? 'free' : countryId !== prev.playerCountryId ? 'diplomacy' : 'nation'
-        );
-        setMobileSheetOpen(true);
-      }
-      return {
-        ...prev,
-        selectedCountryId: countryId,
-        selectedTerritoryId: territoryId ?? countryId,
-      };
-    });
+    setInspectorDismissed(false);
+    setWorld((prev) => ({
+      ...prev,
+      selectedCountryId: countryId,
+      selectedTerritoryId: territoryId ?? countryId,
+    }));
   }, []);
 
   const handleFocusCountry = useCallback(
@@ -277,22 +300,12 @@ export default function App() {
       const c = world.countries[countryId];
       if (!c) return;
       const sovereignId = c.ownerId || countryId;
-      setWorld((prev) => {
-        if (prev.phase === 'PLAYING' && prev.playerCountryId) {
-          setActionSubView((curr) =>
-            curr === 'free'
-              ? 'free'
-              : sovereignId !== prev.playerCountryId
-                ? 'diplomacy'
-                : 'nation'
-          );
-        }
-        return {
-          ...prev,
-          selectedCountryId: sovereignId,
-          selectedTerritoryId: countryId,
-        };
-      });
+      setInspectorDismissed(false);
+      setWorld((prev) => ({
+        ...prev,
+        selectedCountryId: sovereignId,
+        selectedTerritoryId: countryId,
+      }));
       setFocusTarget([...c.centroid]);
     },
     [world.countries]
@@ -304,10 +317,10 @@ export default function App() {
     setIsSimulating(false);
     setSimSummary(null);
     setTargetYear(2030);
-    setActiveHub('ACTION');
-    setActionSubView('free');
+    setRightTab('action');
+    setMobileDeckExpanded(true);
+    setInspectorDismissed(true);
     setActionLogs([]);
-    setMobileSheetOpen(true);
   }, []);
 
   const handleStartCustomGame = useCallback(() => {
@@ -316,10 +329,10 @@ export default function App() {
     setIsSimulating(false);
     setSimSummary(null);
     setTargetYear(2030);
-    setActiveHub('ACTION');
-    setActionSubView('free');
+    setRightTab('action');
+    setMobileDeckExpanded(true);
+    setInspectorDismissed(true);
     setActionLogs([]);
-    setMobileSheetOpen(true);
   }, [customConfig]);
 
   const handleToggleCustomTerritory = useCallback((territoryId: string) => {
@@ -368,10 +381,10 @@ export default function App() {
     setTargetYear(2030);
     setShowStats(false);
     setShowWelcome(false);
-    setActiveHub('ACTION');
-    setActionSubView('free');
+    setRightTab('action');
+    setMobileDeckExpanded(true);
+    setInspectorDismissed(true);
     setActionLogs([]);
-    setMobileSheetOpen(true);
     setSetupMode('CHOOSE_MODE');
     setCustomMapClickMode('relocate');
     setIsMapPickerOpen(false);
@@ -396,30 +409,28 @@ export default function App() {
 
   const handleRecruit = useCallback(
     (troopsK: number) => {
-      setWorld((prev) => {
-        const { nextState, error } = recruitPlayerTroops(prev, troopsK);
-        if (error) {
-          showToast(error);
-          return prev;
-        }
-        showToast(`+${troopsK}k soldats mobilisés.`);
-        return nextState;
-      });
+      const { nextState, error } = recruitPlayerTroops(worldRef.current, troopsK);
+      if (error) {
+        showToast(error);
+        return;
+      }
+      worldRef.current = nextState;
+      setWorld(nextState);
+      showToast(`+${troopsK}k soldats mobilisés.`);
     },
     [showToast]
   );
 
   const handleDirective = useCallback(
     (directive: 'INFRASTRUCTURE' | 'COHESION' | 'RECHERCHE') => {
-      setWorld((prev) => {
-        const { nextState, error } = enactNationalDirective(prev, directive);
-        if (error) {
-          showToast(error);
-          return prev;
-        }
-        showToast('Directive nationale promulguée.');
-        return nextState;
-      });
+      const { nextState, error } = enactNationalDirective(worldRef.current, directive);
+      if (error) {
+        showToast(error);
+        return;
+      }
+      worldRef.current = nextState;
+      setWorld(nextState);
+      showToast('Directive nationale promulguée.');
     },
     [showToast]
   );
@@ -445,15 +456,14 @@ export default function App() {
 
   const handleLaunchOffensive = useCallback(
     (warId: string) => {
-      setWorld((prev) => {
-        const { nextState, error } = launchMajorOffensive(prev, warId);
-        if (error) {
-          showToast(error);
-          return prev;
-        }
-        showToast('Offensive majeure ordonnée (+25 % puissance au prochain mois).');
-        return nextState;
-      });
+      const { nextState, error } = launchMajorOffensive(worldRef.current, warId);
+      if (error) {
+        showToast(error);
+        return;
+      }
+      worldRef.current = nextState;
+      setWorld(nextState);
+      showToast('Offensive majeure ordonnée (+25 % puissance au prochain mois).');
     },
     [showToast]
   );
@@ -471,82 +481,79 @@ export default function App() {
 
   const handleFormCoalition = useCallback(
     (type: 'ALLIANCE' | 'ECONOMIC_UNION', targetId: string) => {
-      setWorld((prev) => {
-        if (!prev.playerCountryId) return prev;
-        const rel = getRelation(prev, prev.playerCountryId, targetId);
-        const threshold = type === 'ALLIANCE' ? 40 : 25;
-        if (rel < threshold) {
-          showToast(
-            `${prev.countries[targetId]?.nameFr} refuse pour l’instant (relation requise : +${threshold}, actuelle : ${rel}). Envoyez un message ou une aide.`
-          );
-          return prev;
-        }
+      const prev = worldRef.current;
+      if (!prev.playerCountryId) return;
+      const rel = getRelation(prev, prev.playerCountryId, targetId);
+      const threshold = type === 'ALLIANCE' ? 40 : 25;
+      if (rel < threshold) {
         showToast(
-          type === 'ALLIANCE' ? 'Alliance militaire conclue.' : 'Union économique établie.'
+          `${prev.countries[targetId]?.nameFr} refuse pour l’instant (relation requise : +${threshold}, actuelle : ${rel}).`
         );
-        return formTreatyCoalition(prev, type, prev.playerCountryId, targetId);
-      });
+        return;
+      }
+      const nextState = formTreatyCoalition(prev, type, prev.playerCountryId, targetId);
+      worldRef.current = nextState;
+      setWorld(nextState);
+      showToast(
+        type === 'ALLIANCE' ? 'Alliance militaire conclue.' : 'Union économique établie.'
+      );
     },
     [showToast]
   );
 
   const handleSendAid = useCallback(
     (targetId: string, amount: number) => {
-      setWorld((prev) => {
-        if (!prev.playerCountryId) return prev;
-        const { nextState, error } = sendFinancialAid(
-          prev,
-          prev.playerCountryId,
-          targetId,
-          amount
-        );
-        if (error) {
-          showToast(error);
-          return prev;
-        }
-        showToast(`Aide financière de ${amount} Mds $ versée.`);
-        return nextState;
-      });
+      const prev = worldRef.current;
+      if (!prev.playerCountryId) return;
+      const { nextState, error } = sendFinancialAid(prev, prev.playerCountryId, targetId, amount);
+      if (error) {
+        showToast(error);
+        return;
+      }
+      worldRef.current = nextState;
+      setWorld(nextState);
+      showToast(`Aide financière de ${amount} Mds $ versée.`);
     },
     [showToast]
   );
 
   const handleSignNonAggression = useCallback(
     (targetId: string) => {
-      setWorld((prev) => {
-        if (!prev.playerCountryId) return prev;
-        const rel = getRelation(prev, prev.playerCountryId, targetId);
-        if (rel < -10) {
-          showToast('Relations trop tendues pour un pacte de non-agression.');
-          return prev;
-        }
-        const k = pairKey(prev.playerCountryId, targetId);
-        if (prev.nonAggressionPacts.includes(k)) return prev;
-        const nextRels = { ...prev.relations };
-        setRelation(nextRels, prev.playerCountryId, targetId, rel + 8);
-        showToast('Pacte de non-agression signé.');
-        return {
-          ...prev,
-          relations: nextRels,
-          nonAggressionPacts: [...prev.nonAggressionPacts, k],
-        };
-      });
+      const prev = worldRef.current;
+      if (!prev.playerCountryId) return;
+      const rel = getRelation(prev, prev.playerCountryId, targetId);
+      if (rel < -10) {
+        showToast('Relations trop tendues pour un pacte de non-agression.');
+        return;
+      }
+      const k = pairKey(prev.playerCountryId, targetId);
+      if (prev.nonAggressionPacts.includes(k)) return;
+      const nextRels = { ...prev.relations };
+      setRelation(nextRels, prev.playerCountryId, targetId, rel + 8);
+      const nextState: WorldState = {
+        ...prev,
+        relations: nextRels,
+        nonAggressionPacts: [...prev.nonAggressionPacts, k],
+      };
+      worldRef.current = nextState;
+      setWorld(nextState);
+      showToast('Pacte de non-agression signé.');
     },
     [showToast]
   );
 
   const handleSignTradeDeal = useCallback(
     (targetId: string) => {
-      setWorld((prev) => {
-        if (!prev.playerCountryId) return prev;
-        const { nextState, error } = signTradeDeal(prev, prev.playerCountryId, targetId);
-        if (error) {
-          showToast(error);
-          return prev;
-        }
-        showToast(`Accord commercial signé avec ${prev.countries[targetId]?.nameFr}.`);
-        return nextState;
-      });
+      const prev = worldRef.current;
+      if (!prev.playerCountryId) return;
+      const { nextState, error } = signTradeDeal(prev, prev.playerCountryId, targetId);
+      if (error) {
+        showToast(error);
+        return;
+      }
+      worldRef.current = nextState;
+      setWorld(nextState);
+      showToast(`Accord commercial signé avec ${prev.countries[targetId]?.nameFr}.`);
     },
     [showToast]
   );
@@ -557,14 +564,15 @@ export default function App() {
 
   const handleSendAiMessage = useCallback(
     async (targetId: string, message: string) => {
-      if (!world.playerCountryId || isAiSending) return;
-      const player = world.countries[world.playerCountryId];
-      const target = world.countries[targetId];
+      const snap = worldRef.current;
+      if (!snap.playerCountryId || isAiSending) return;
+      const player = snap.countries[snap.playerCountryId];
+      const target = snap.countries[targetId];
       if (!player || !target) return;
 
-      const dateLabel = formatDateFr(world.year, world.month);
+      const dateLabel = formatFullDateFr(snap.year, snap.month, snap.day);
       const tKey = pairKey(player.id, target.id);
-      const existingHistory = world.threads[tKey] || [];
+      const existingHistory = snap.threads[tKey] || [];
 
       const playerMsg = {
         id: `msg-p-${Date.now()}`,
@@ -584,13 +592,13 @@ export default function App() {
 
       setIsAiSending(true);
       try {
-        const relationVal = getRelation(world, player.id, target.id);
-        const isAtWarVal = Boolean(isAtWarBetween(world, player.id, target.id));
+        const relationVal = getRelation(snap, player.id, target.id);
+        const isAtWarVal = Boolean(isAtWarBetween(snap, player.id, target.id));
         const isAlliedVal = Boolean(
-          sharesAlliance(world.alliances, player.id, target.id, 'ALLIANCE')
+          sharesAlliance(snap.alliances, player.id, target.id, 'ALLIANCE')
         );
         const sameEcoVal = Boolean(
-          sharesAlliance(world.alliances, player.id, target.id, 'ECONOMIC_UNION')
+          sharesAlliance(snap.alliances, player.id, target.id, 'ECONOMIC_UNION')
         );
 
         let data: DiplomacyReplyResult | null = null;
@@ -682,17 +690,18 @@ export default function App() {
         setIsAiSending(false);
       }
     },
-    [world, isAiSending]
+    [isAiSending]
   );
 
   const handleTriggerCrisis = useCallback(async () => {
-    if (!world.playerCountryId || isGeneratingCrisis) return;
-    const player = world.countries[world.playerCountryId];
+    const snap = worldRef.current;
+    if (!snap.playerCountryId || isGeneratingCrisis) return;
+    const player = snap.countries[snap.playerCountryId];
     if (!player) return;
 
     setIsGeneratingCrisis(true);
     try {
-      const topPowers = Object.values(world.countries)
+      const topPowers = Object.values(snap.countries)
         .filter((c) => c.ownerId === c.id)
         .sort((a, b) => b.gdp - a.gdp)
         .slice(0, 6)
@@ -707,8 +716,8 @@ export default function App() {
             body: JSON.stringify({
               playerCountry: player,
               topPowers,
-              currentDateLabel: formatDateFr(world.year, world.month),
-              activeWarsCount: world.wars.length,
+              currentDateLabel: formatDateFr(snap.year, snap.month),
+              activeWarsCount: snap.wars.length,
             }),
           });
           const contentType = res.headers.get('content-type') || '';
@@ -730,7 +739,7 @@ export default function App() {
     } finally {
       setIsGeneratingCrisis(false);
     }
-  }, [world, isGeneratingCrisis]);
+  }, [isGeneratingCrisis]);
 
   const handleResolveCrisis = useCallback((option: 'A' | 'B') => {
     setWorld((prev) => {
@@ -750,7 +759,7 @@ export default function App() {
 
       const evt = {
         id: `evt-crisis-${Date.now()}`,
-        dateLabel: formatDateFr(prev.year, prev.month),
+        dateLabel: formatFullDateFr(prev.year, prev.month, prev.day),
         monthIndex: prev.monthIndex,
         category: 'CRISE' as const,
         title: cr.title,
@@ -769,21 +778,22 @@ export default function App() {
 
   const handleExecuteFreeAction = useCallback(
     async (rawPrompt: string) => {
-      if (!world.playerCountryId || isExecutingFreeAction) return;
-      const currentPlayer = world.countries[world.playerCountryId];
+      const snap = worldRef.current;
+      if (!snap.playerCountryId || isExecutingFreeAction) return;
+      const currentPlayer = snap.countries[snap.playerCountryId];
       if (!currentPlayer) return;
 
       setIsExecutingFreeAction(true);
       try {
-        const mentioned = extractMentionedCountries(world, rawPrompt, currentPlayer.id);
-        const topPowers = Object.values(world.countries)
+        const mentioned = extractMentionedCountries(snap, rawPrompt, currentPlayer.id);
+        const topPowers = Object.values(snap.countries)
           .filter((c) => c.ownerId === c.id && c.id !== currentPlayer.id)
           .sort((a, b) => b.gdp - a.gdp)
           .slice(0, 12)
           .map((c) => ({
             id: c.id,
             nameFr: c.nameFr,
-            relation: getRelation(world, currentPlayer.id, c.id),
+            relation: getRelation(snap, currentPlayer.id, c.id),
           }));
 
         let effectData: FreeActionEffect | null = null;
@@ -800,12 +810,12 @@ export default function App() {
                   nameFr: c.nameFr,
                   gdp: Math.round(c.gdp),
                   army: c.army,
-                  relation: getRelation(world, currentPlayer.id, c.id),
-                  isAtWar: Boolean(isAtWarBetween(world, currentPlayer.id, c.id)),
+                  relation: getRelation(snap, currentPlayer.id, c.id),
+                  isAtWar: Boolean(isAtWarBetween(snap, currentPlayer.id, c.id)),
                 })),
                 topPowers,
-                currentDateLabel: formatDateFr(world.year, world.month),
-                activeWarsCount: world.wars.length,
+                currentDateLabel: formatFullDateFr(snap.year, snap.month, snap.day),
+                activeWarsCount: snap.wars.length,
               }),
             });
             const contentType = res.headers.get('content-type') || '';
@@ -833,8 +843,8 @@ export default function App() {
         setActionLogs((prev) => [logEntry, ...prev].slice(0, 40));
 
         const firstTargetId = resolvedEffect.targetImpacts?.[0]?.countryId;
-        if (firstTargetId && world.countries[firstTargetId]) {
-          setFocusTarget([...world.countries[firstTargetId].centroid]);
+        if (firstTargetId && nextState.countries[firstTargetId]) {
+          setFocusTarget([...nextState.countries[firstTargetId].centroid]);
         }
 
         showToast(`Décision exécutée : ${resolvedEffect.summaryTitle}`);
@@ -842,19 +852,19 @@ export default function App() {
         setIsExecutingFreeAction(false);
       }
     },
-    [world, isExecutingFreeAction, showToast]
+    [isExecutingFreeAction, showToast]
   );
 
   const player = world.playerCountryId ? world.countries[world.playerCountryId] : null;
   const playerTotals = player ? getCountryTotalStats(world, player.id) : null;
-  const dateLabel = formatDateFr(world.year, world.month);
+  const fullDateLabel = formatFullDateFr(world.year, world.month, world.day);
   const countriesCount = Object.keys(world.countries).length;
 
   const savedCampaign =
     world.phase === 'PLAYING' && player
       ? {
           countryName: player.nameFr,
-          dateLabel,
+          dateLabel: fullDateLabel,
           color: player.color,
         }
       : null;
@@ -864,6 +874,26 @@ export default function App() {
     world.selectedCountryId &&
     world.selectedCountryId !== world.playerCountryId &&
     Boolean(world.countries[world.selectedCountryId]);
+
+  const playerWarsCount = useMemo(() => {
+    if (!player) return 0;
+    return world.wars.filter(
+      (w) =>
+        w.aggressorId === player.id ||
+        w.defenderId === player.id ||
+        w.aggressorAllies.includes(player.id) ||
+        w.defenderAllies.includes(player.id)
+    ).length;
+  }, [world.wars, player]);
+
+  const pausedByModal = Boolean(
+    world.pendingCrisis || world.pendingWarOutcome || simSummary
+  );
+
+  const targetYearOptions = useMemo(
+    () => [1, 2, 3, 5, 10, 15, 25].map((offset) => world.year + offset),
+    [world.year]
+  );
 
   const isChoosingStartMode = world.phase === 'SELECT_NATION' && setupMode === 'CHOOSE_MODE';
   const isCreatingCustom = world.phase === 'SELECT_NATION' && setupMode === 'CREATE_CUSTOM';
@@ -913,191 +943,212 @@ export default function App() {
   }
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-[#080E18] text-slate-100 overflow-hidden">
-      {/* Top Command Bar */}
-      <header className="h-16 px-3 sm:px-5 border-b border-amber-400/25 bg-gradient-to-r from-[#071124] via-[#0B1933] to-[#071124] flex items-center justify-between gap-3 shrink-0 z-30 shadow-[0_6px_24px_rgba(3,8,20,0.65)]">
-        {/* Zone 1: Brand + Active Nation & Current Date */}
-        <div className="flex items-center gap-3 min-w-0">
-          <span className="text-base sm:text-lg font-display font-semibold tracking-tight bg-gradient-to-r from-amber-200 via-amber-400 to-amber-200 bg-clip-text text-transparent whitespace-nowrap shrink-0">
-            Orbis Diplomatica
-          </span>
-          {player && (
-            <div className="hidden sm:flex items-center gap-2 px-2.5 py-1 rounded-lg bg-[#0E1E3A]/85 border border-amber-400/20 text-xs text-amber-200 font-medium whitespace-nowrap shrink-0">
-              <CountryFlag
-                flag={player.flag}
-                fallbackColor={player.color}
-                name={player.nameFr}
-                className="w-5 h-3.5 rounded-xs border border-white/25 shrink-0"
-              />
-              <span className="max-w-[140px] truncate">{player.nameFr}</span>
-            </div>
-          )}
-          {world.phase === 'PLAYING' && (
-            <span className="hidden md:inline text-xs font-mono-tabular text-slate-300 whitespace-nowrap shrink-0">
-              {dateLabel}
-            </span>
-          )}
-        </div>
+    <div className="relative h-screen w-screen flex flex-col bg-[#060D1A] text-slate-100 overflow-hidden">
+      {world.phase === 'PLAYING' ? (
+        <>
+          {/* TOP COMMAND HEADER */}
+          <header className="h-14 px-3 sm:px-5 border-b border-amber-400/25 bg-[#091224] flex items-center justify-between gap-3 shrink-0 z-30">
+            {/* Left: Brand + Active Nation */}
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="text-sm sm:text-base font-display font-semibold tracking-tight bg-gradient-to-r from-amber-200 via-amber-400 to-amber-200 bg-clip-text text-transparent whitespace-nowrap shrink-0">
+                Orbis Diplomatica
+              </span>
 
-        {/* Zone 2: National Telemetry OR Map Modes */}
-        {world.phase === 'PLAYING' && player && playerTotals ? (
-          <div className="hidden xl:flex items-center gap-5 text-xs font-mono-tabular">
-            <div>
-              <span className="text-slate-400 mr-1.5 font-sans">Trésor</span>
-              <span className="text-amber-300 font-semibold">
-                {player.treasury.toFixed(1)} Md $
-              </span>
-              <span
-                className={`ml-1 text-[11px] ${
-                  player.monthlyBalance >= 0 ? 'text-emerald-400' : 'text-rose-400'
-                }`}
-              >
-                ({player.monthlyBalance >= 0 ? '+' : ''}
-                {player.monthlyBalance.toFixed(1)})
-              </span>
+              {player && (
+                <div className="hidden sm:flex items-center gap-2 pl-3 border-l border-white/10 min-w-0">
+                  <CountryFlag
+                    flag={player.flag}
+                    fallbackColor={player.color}
+                    name={player.nameFr}
+                    className="w-6 h-4 rounded-xs border border-amber-300/40 shrink-0"
+                  />
+                  <span className="text-xs font-semibold text-white truncate max-w-[140px]">
+                    {player.nameFr}
+                  </span>
+                  <span className="hidden xl:inline text-[11px] text-slate-400 truncate max-w-[160px]">
+                    · {player.regime}
+                  </span>
+                </div>
+              )}
             </div>
-            <div>
-              <span className="text-slate-400 mr-1.5 font-sans">PIB</span>
-              <span className="text-white font-semibold">
-                {playerTotals.totalGdp.toLocaleString('fr-FR')} Md
-              </span>
-            </div>
-            <div>
-              <span className="text-slate-400 mr-1.5 font-sans">Armée</span>
-              <span className="text-rose-300 font-semibold">
-                {player.army.toLocaleString('fr-FR')}k
-              </span>
-            </div>
-            <div>
-              <span className="text-slate-400 mr-1.5 font-sans">Pop.</span>
-              <span className="text-sky-300 font-semibold">
-                {playerTotals.totalPop.toFixed(1)}M
-              </span>
-            </div>
-            <div>
-              <span className="text-slate-400 mr-1.5 font-sans">Stabilité</span>
-              <span className="text-emerald-300 font-semibold">
-                {Math.round(player.stability)}%
-              </span>
-            </div>
-          </div>
-        ) : (
-          <div className="hidden md:block text-xs text-slate-400">
-            Simulation géopolitique mondiale · {countriesCount} territoires &amp; États
-          </div>
-        )}
 
-        {/* Zone 3: Primary Button Bar — STRICTLY ONLY CHAT & ACTION during PLAYING */}
-        <div className="flex items-center gap-2.5 shrink-0">
-          {world.phase === 'PLAYING' ? (
-            <>
+            {/* Center: Unboxed Tabular Telemetry */}
+            {player && playerTotals && (
+              <div className="hidden lg:flex items-center gap-3 text-xs font-mono-tabular whitespace-nowrap">
+                <div>
+                  <span className="text-slate-400 font-sans mr-1">Trésor</span>
+                  <span className="text-amber-300 font-semibold">
+                    {player.treasury.toFixed(1)} Md$
+                  </span>
+                  <span
+                    className={`ml-1 text-[11px] ${
+                      player.monthlyBalance >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                    }`}
+                  >
+                    ({player.monthlyBalance >= 0 ? '+' : ''}
+                    {player.monthlyBalance.toFixed(1)})
+                  </span>
+                </div>
+                <span className="text-slate-600">·</span>
+                <div>
+                  <span className="text-slate-400 font-sans mr-1">PIB</span>
+                  <span className="text-white font-semibold">
+                    {playerTotals.totalGdp.toLocaleString('fr-FR')} Md$
+                  </span>
+                </div>
+                <span className="text-slate-600">·</span>
+                <div>
+                  <span className="text-slate-400 font-sans mr-1">Armée</span>
+                  <span className="text-rose-300 font-semibold">
+                    {player.army.toLocaleString('fr-FR')}k
+                  </span>
+                </div>
+                <span className="text-slate-600">·</span>
+                <div>
+                  <span className="text-slate-400 font-sans mr-1">Pop.</span>
+                  <span className="text-sky-300 font-semibold">
+                    {playerTotals.totalPop.toFixed(1)}M
+                  </span>
+                </div>
+                <span className="text-slate-600">·</span>
+                <div>
+                  <span className="text-slate-400 font-sans mr-1">Stab.</span>
+                  <span className="text-emerald-300 font-semibold">
+                    {Math.round(player.stability)}%
+                  </span>
+                </div>
+                <span className="text-slate-600 hidden xl:inline">·</span>
+                <div className="hidden xl:block">
+                  <span className="text-slate-400 font-sans mr-1">Infl.</span>
+                  <span className="text-amber-200 font-semibold">
+                    {Math.round(player.influence ?? 50)}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Right: Global Controls */}
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
               <button
                 type="button"
-                onClick={() => {
-                  setActiveHub('CHAT');
-                  setMobileSheetOpen(true);
-                }}
-                aria-pressed={activeHub === 'CHAT' && mobileSheetOpen}
-                className={`min-h-[44px] px-4 sm:px-6 py-2 rounded-xl border text-xs sm:text-sm font-bold tracking-wider uppercase flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
-                  activeHub === 'CHAT' && mobileSheetOpen
-                    ? 'bg-gradient-to-b from-[#1A3463] to-[#0F2040] border-amber-400 text-amber-200 shadow-[0_0_20px_rgba(245,158,11,0.35)] ring-1 ring-amber-300/40'
-                    : 'bg-gradient-to-b from-[#112244] to-[#0A162D] hover:from-[#172D58] hover:to-[#0E1E3B] border-amber-400/45 text-amber-100 hover:border-amber-300 shadow-md'
-                }`}
+                onClick={() => setShowStats(true)}
+                className="min-h-[36px] px-2.5 py-1.5 rounded-lg bg-[#111E38] hover:bg-[#192C50] border border-white/10 text-xs font-medium text-slate-200 flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                title="Classement & Statistiques mondiales"
               >
-                <MessageSquareText className="w-4 h-4 text-amber-300 shrink-0" />
-                <span>CHAT</span>
-                {world.proposals.length > 0 && (
-                  <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
-                )}
+                <BarChart3 className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+                <span className="hidden sm:inline">Stats</span>
               </button>
 
               <button
                 type="button"
-                onClick={() => {
-                  setActiveHub('ACTION');
-                  setMobileSheetOpen(true);
-                }}
-                aria-pressed={activeHub === 'ACTION' && mobileSheetOpen}
-                className={`min-h-[44px] px-4 sm:px-6 py-2 rounded-xl border text-xs sm:text-sm font-bold tracking-wider uppercase flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
-                  activeHub === 'ACTION' && mobileSheetOpen
-                    ? 'bg-gradient-to-b from-amber-400 via-amber-500 to-amber-600 border-amber-200 text-slate-950 shadow-[0_0_22px_rgba(245,158,11,0.45)]'
-                    : 'bg-gradient-to-b from-[#112244] to-[#0A162D] hover:from-[#172D58] hover:to-[#0E1E3B] border-amber-400/45 text-amber-200 hover:border-amber-300 shadow-md'
+                disabled={isGeneratingCrisis}
+                onClick={handleTriggerCrisis}
+                className="min-h-[36px] px-2.5 py-1.5 rounded-lg bg-[#111E38] hover:bg-[#192C50] disabled:opacity-50 border border-white/10 text-xs font-medium text-slate-200 flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                title="Générer un événement mondial"
+              >
+                {isGeneratingCrisis ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-300 shrink-0" />
+                ) : (
+                  <Sparkles className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+                )}
+                <span className="hidden md:inline">Sommet IA</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleResetGame}
+                title="Recommencer une partie"
+                className="min-h-[36px] px-2.5 py-1.5 rounded-lg bg-[#111E38] hover:bg-[#192C50] border border-white/10 text-xs font-medium text-slate-200 flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <span className="hidden sm:inline">Recommencer</span>
+              </button>
+            </div>
+          </header>
+
+          {/* TIME & MAP LENS SUB-BAR */}
+          <div className="px-3 sm:px-5 py-1.5 border-b border-white/10 bg-[#0B1528] flex flex-wrap items-center justify-between gap-2 shrink-0 z-20">
+            {/* Left: Day / Month / Year Simulation Bar */}
+            <div className="flex items-center gap-1.5 overflow-x-auto max-w-full">
+              <div className="flex items-center gap-1.5 pr-2 mr-1 border-r border-white/10 text-xs font-mono-tabular font-semibold text-amber-200 whitespace-nowrap shrink-0">
+                <Calendar className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+                <span>{fullDateLabel}</span>
+              </div>
+
+              <button
+                type="button"
+                disabled={isSimulating || pausedByModal}
+                onClick={() => handleAdvanceDays(7)}
+                className="min-h-[32px] px-2.5 py-1 rounded-md bg-[#132240] hover:bg-[#1B3058] disabled:opacity-45 border border-white/10 text-xs font-medium text-slate-100 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                +7 Jours
+              </button>
+
+              <button
+                type="button"
+                disabled={isSimulating || pausedByModal}
+                onClick={handleAdvanceMonth}
+                className="min-h-[32px] px-2.5 py-1 rounded-md bg-[#132240] hover:bg-[#1B3058] disabled:opacity-45 border border-white/10 text-xs font-medium text-slate-100 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                +1 Mois
+              </button>
+
+              <button
+                type="button"
+                disabled={isSimulating || pausedByModal}
+                onClick={() => handleAdvanceMonths(12)}
+                className="min-h-[32px] px-2.5 py-1 rounded-md bg-[#132240] hover:bg-[#1B3058] disabled:opacity-45 border border-white/10 text-xs font-medium text-slate-100 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                +1 An
+              </button>
+
+              <button
+                type="button"
+                disabled={isSimulating || pausedByModal}
+                onClick={() => setAutoPlay((a) => !a)}
+                aria-pressed={autoPlay}
+                className={`min-h-[32px] px-2.5 py-1 rounded-md border text-xs font-medium flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0 ${
+                  autoPlay
+                    ? 'bg-amber-400/20 border-amber-400/50 text-amber-200'
+                    : 'bg-[#132240] hover:bg-[#1B3058] border-white/10 text-slate-200'
                 }`}
               >
-                <Crown
-                  className={`w-4 h-4 shrink-0 ${
-                    activeHub === 'ACTION' && mobileSheetOpen
-                      ? 'text-slate-950'
-                      : 'text-amber-300'
-                  }`}
-                />
-                <span>ACTION</span>
-                {world.wars.some(
-                  (w) =>
-                    player &&
-                    (w.aggressorId === player.id ||
-                      w.defenderId === player.id ||
-                      w.aggressorAllies.includes(player.id) ||
-                      w.defenderAllies.includes(player.id))
-                ) && (
-                  <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" />
+                {autoPlay ? (
+                  <Pause className="w-3 h-3 shrink-0" />
+                ) : (
+                  <Play className="w-3 h-3 shrink-0" />
                 )}
+                <span>{autoPlay ? 'Pause' : 'Auto'}</span>
               </button>
-            </>
-          ) : (
-            <button
-              type="button"
-              onClick={handleResetGame}
-              title="Recommencer une partie (choisir un pays existant ou créer mon propre pays)"
-              className="min-h-[40px] flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-200 hover:text-white bg-[#152238] hover:bg-[#1E2F4C] border border-white/10 rounded-lg transition-colors cursor-pointer whitespace-nowrap"
-            >
-              <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
-              <span>Recommencer</span>
-            </button>
-          )}
-        </div>
-      </header>
 
-      {/* Year Destination Simulator Bar */}
-      {world.phase === 'PLAYING' && (
-        <YearSimulatorBar
-          currentYear={world.year}
-          currentDateLabel={dateLabel}
-          targetYear={targetYear}
-          onChangeTargetYear={setTargetYear}
-          isSimulating={isSimulating}
-          onStartSimulation={handleStartSimulation}
-          pausedByModal={Boolean(world.pendingCrisis || world.pendingWarOutcome || simSummary)}
-        />
-      )}
+              <div className="hidden sm:flex items-center gap-1 pl-2 ml-1 border-l border-white/10 shrink-0">
+                <select
+                  aria-label="Année cible de simulation"
+                  value={targetYear}
+                  disabled={isSimulating}
+                  onChange={(e) => setTargetYear(Number(e.target.value))}
+                  className="min-h-[32px] px-2 py-1 text-xs font-mono-tabular bg-[#091222] border border-white/15 rounded-md text-amber-200 focus:outline-none focus:border-amber-400 cursor-pointer"
+                >
+                  {targetYearOptions.map((y) => (
+                    <option key={y} value={y}>
+                      → {y}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={isSimulating || pausedByModal || targetYear <= world.year}
+                  onClick={handleStartSimulation}
+                  className="min-h-[32px] px-2.5 py-1 rounded-md bg-amber-500 hover:bg-amber-400 disabled:opacity-45 text-slate-950 text-xs font-bold flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                >
+                  <FastForward className="w-3 h-3 shrink-0" />
+                  <span>Simuler</span>
+                </button>
+              </div>
+            </div>
 
-      {/* Main Content: Mandatory Two-Choice Start OR Interactive Map Workspace */}
-      {isChoosingStartMode ? (
-        <StartChoiceScreen
-          features={features}
-          spherePath={spherePath}
-          graticulePath={graticulePath}
-          countriesCount={countriesCount}
-          onSelectExistingMode={() => setSetupMode('EXISTING')}
-          onSelectCustomMode={() => setSetupMode('CREATE_CUSTOM')}
-        />
-      ) : (
-        <div className="flex-1 flex flex-col lg:flex-row min-h-0 relative">
-          {/* Left/Center Dominant Map Stage */}
-          <main className="flex-1 relative min-h-[340px]">
-            <WorldMap
-              features={features}
-              spherePath={spherePath}
-              graticulePath={graticulePath}
-              world={world}
-              mapMode={mapMode}
-              onSelectCountry={isCreatingCustom ? handleCustomMapClick : handleSelectCountry}
-              focusTarget={focusTarget}
-              customPreview={memoizedCustomPreview}
-            />
-
-            {/* Map Mode Segmented Control (Top-Right inside Map) */}
-            <div className="absolute top-3 right-3 z-20 max-w-[calc(100vw-24px)] overflow-x-auto flex items-center gap-1 p-1 bg-[#0B1528]/95 border border-amber-400/25 rounded-lg shadow-lg">
+            {/* Right: Map Lens Selector */}
+            <div className="flex items-center gap-1 overflow-x-auto max-w-full">
               {(
                 [
                   ['politique', 'Politique'],
@@ -1111,7 +1162,7 @@ export default function App() {
                   key={mode}
                   type="button"
                   onClick={() => setMapMode(mode)}
-                  className={`min-h-[34px] px-2.5 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+                  className={`min-h-[30px] px-2.5 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
                     mapMode === mode
                       ? 'bg-amber-500 text-slate-950 font-semibold'
                       : 'text-slate-300 hover:text-white hover:bg-white/5'
@@ -1121,142 +1172,360 @@ export default function App() {
                 </button>
               ))}
             </div>
+          </div>
 
-            {/* Custom Territory Map Click Mode Bar (Bottom-Left during Custom Creation) */}
-            {isCreatingCustom && (
-              <div className="absolute bottom-3 left-3 z-20 flex flex-wrap items-center gap-1.5 p-1.5 bg-[#0D1524]/95 border border-white/15 rounded-md shadow-xl">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCustomMapClickMode('relocate');
-                    handleOpenMapPicker('relocate');
-                  }}
-                  className={`min-h-[38px] px-3 py-1.5 text-xs font-semibold rounded transition-colors cursor-pointer whitespace-nowrap ${
-                    customMapClickMode === 'relocate'
-                      ? 'bg-amber-500 text-slate-950 hover:bg-amber-400'
-                      : 'bg-[#17263F] text-slate-100 hover:bg-[#1E3152]'
-                  }`}
-                >
-                  Définir l’emplacement
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCustomMapClickMode('expand');
-                    handleOpenMapPicker('brush-add');
-                  }}
-                  className={`min-h-[38px] px-3 py-1.5 text-xs font-semibold rounded transition-colors cursor-pointer whitespace-nowrap ${
-                    customMapClickMode === 'expand'
-                      ? 'bg-sky-500 text-slate-950 hover:bg-sky-400'
-                      : 'bg-[#17263F] text-slate-200 hover:bg-[#1E3152]'
-                  }`}
-                >
-                  Tracer les frontières ({customConfig.territoryIds.length})
-                </button>
-              </div>
-            )}
+          {/* SPLIT WORKSPACE: DOMINANT CENTRAL WORLD MAP + DOCKED STRATEGY PANEL */}
+          <div className="flex-1 flex flex-col lg:flex-row min-h-0 relative overflow-hidden">
+            {/* Central Interactive World Map */}
+            <main className="flex-1 relative min-h-[260px] overflow-hidden">
+              <WorldMap
+                features={features}
+                spherePath={spherePath}
+                graticulePath={graticulePath}
+                world={world}
+                mapMode={mapMode}
+                onSelectCountry={handleSelectCountry}
+                focusTarget={focusTarget}
+                customPreview={null}
+              />
 
-            {/* World Chronicle & Diplomatic Inbox */}
-            {world.phase === 'PLAYING' && (
+              {feedback && (
+                <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 max-w-[calc(100%-24px)] px-4 py-2 bg-[#071124]/95 backdrop-blur-md border border-amber-400/45 rounded-xl shadow-2xl text-xs font-medium text-amber-200 text-center">
+                  {feedback}
+                </div>
+              )}
+
+              {/* Non-blocking Foreign Country Quick Card */}
+              {showingForeign && world.selectedCountryId && !inspectorDismissed && (
+                <CountryInspectorPopup
+                  world={world}
+                  targetCountryId={world.selectedCountryId}
+                  onClose={() => setInspectorDismissed(true)}
+                  onOpenChat={(cid) => {
+                    handleSelectCountry(cid);
+                    setRightTab('chat');
+                    setMobileDeckExpanded(true);
+                  }}
+                  onOpenDiplomacy={(cid) => {
+                    handleSelectCountry(cid);
+                    setRightTab('chat');
+                    setMobileDeckExpanded(true);
+                  }}
+                  onOpenActionPrompt={() => {
+                    setRightTab('action');
+                    setMobileDeckExpanded(true);
+                  }}
+                />
+              )}
+
+              {/* Collapsible World Chronicle & Proposals Drawer */}
               <WorldChronicle
                 world={world}
                 onFocusCountry={handleFocusCountry}
                 onResolveProposal={handleResolveProposal}
               />
-            )}
-          </main>
+            </main>
 
-          {/* Right Contextual Sidebar */}
-          {world.phase === 'SELECT_NATION' ? (
-            setupMode === 'CREATE_CUSTOM' ? (
-              <CustomNationPanel
-                world={world}
-                config={customConfig}
-                territoryConfirmVersion={territoryConfirmVersion}
-                tutorialEnabledByDefault={true}
-                onTutorialStateChange={handleTutorialStateChange}
-                onChangeConfig={setCustomConfig}
-                onFocusTerritory={handleFocusCountry}
-                onToggleTerritory={handleToggleCustomTerritory}
-                onOpenMapPicker={handleOpenMapPicker}
-                onBackToModeChoice={() => setSetupMode('CHOOSE_MODE')}
-                onStartCustomGame={handleStartCustomGame}
-              />
-            ) : (
-              <NationSelectPanel
-                world={world}
-                onSelectCountry={handleSelectCountry}
-                onFocusCountry={handleFocusCountry}
-                onStartGame={handleStartGame}
-                onBackToModeChoice={() => setSetupMode('CHOOSE_MODE')}
-              />
-            )
+            {/* Right Docked Strategy, Diplomacy & Free-Action Deck */}
+            <aside
+              className={`w-full lg:w-[400px] xl:w-[430px] border-t lg:border-t-0 lg:border-l border-amber-400/20 bg-[#0B1322] flex flex-col shrink-0 transition-all min-h-0 ${
+                mobileDeckExpanded ? 'h-[46vh] lg:h-full' : 'h-12 lg:h-full'
+              }`}
+            >
+              {/* 3-Tab Segmented Switcher: CHAT | ACTION | Mon Pays */}
+              <div className="h-12 px-2.5 border-b border-white/10 bg-[#091224] flex items-center justify-between gap-2 shrink-0">
+                <div className="flex-1 grid grid-cols-3 gap-1 p-1 bg-[#060D1A] border border-white/10 rounded-lg">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRightTab('chat');
+                      setMobileDeckExpanded(true);
+                    }}
+                    className={`min-h-[32px] px-2 py-1 rounded-md text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap ${
+                      rightTab === 'chat'
+                        ? 'bg-[#172A4D] text-amber-200 border border-amber-400/40'
+                        : 'text-slate-300 hover:text-white border border-transparent'
+                    }`}
+                  >
+                    <MessageSquareText className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+                    <span>CHAT</span>
+                    {world.proposals.length > 0 && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRightTab('action');
+                      setMobileDeckExpanded(true);
+                    }}
+                    className={`min-h-[32px] px-2 py-1 rounded-md text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap ${
+                      rightTab === 'action'
+                        ? 'bg-gradient-to-b from-amber-400 to-amber-500 text-slate-950 font-bold'
+                        : 'text-slate-300 hover:text-white border border-transparent'
+                    }`}
+                  >
+                    <Crown
+                      className={`w-3.5 h-3.5 shrink-0 ${
+                        rightTab === 'action' ? 'text-slate-950' : 'text-amber-300'
+                      }`}
+                    />
+                    <span>ACTION</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRightTab('nation');
+                      setMobileDeckExpanded(true);
+                    }}
+                    className={`min-h-[32px] px-2 py-1 rounded-md text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap ${
+                      rightTab === 'nation'
+                        ? 'bg-[#172A4D] text-amber-200 border border-amber-400/40'
+                        : 'text-slate-300 hover:text-white border border-transparent'
+                    }`}
+                  >
+                    <Flag className="w-3.5 h-3.5 text-sky-300 shrink-0" />
+                    <span>Mon Pays</span>
+                    {playerWarsCount > 0 && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" />
+                    )}
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setMobileDeckExpanded((v) => !v)}
+                  className="lg:hidden min-h-[34px] min-w-[34px] rounded-lg bg-[#132240] border border-white/10 text-slate-300 hover:text-white flex items-center justify-center shrink-0 cursor-pointer"
+                  aria-label={mobileDeckExpanded ? 'Réduire le panneau' : 'Ouvrir le panneau'}
+                >
+                  {mobileDeckExpanded ? (
+                    <ChevronDown className="w-4 h-4" />
+                  ) : (
+                    <ChevronUp className="w-4 h-4" />
+                  )}
+                </button>
+              </div>
+
+              {/* Active Panel Content */}
+              <div className={`flex-1 min-h-0 ${mobileDeckExpanded ? 'block' : 'hidden lg:block'}`}>
+                {rightTab === 'chat' && (
+                  <ChatHubPanel
+                    world={world}
+                    selectedTargetId={showingForeign ? world.selectedCountryId : null}
+                    onSelectTargetCountry={(cid) => handleSelectCountry(cid)}
+                    onFocusCountry={handleFocusCountry}
+                    onSendAiMessage={handleSendAiMessage}
+                    onFormCoalition={handleFormCoalition}
+                    onSignTradeDeal={handleSignTradeDeal}
+                    onSignNonAggression={handleSignNonAggression}
+                    onSendAid={handleSendAid}
+                    onDeclareWar={handleDeclareWar}
+                    onPeaceTreaty={handlePeaceTreaty}
+                    onLaunchOffensive={handleLaunchOffensive}
+                    isAiSending={isAiSending}
+                    feedback={feedback}
+                  />
+                )}
+
+                {rightTab === 'action' && (
+                  <ActionHubPanel
+                    world={world}
+                    dateLabel={fullDateLabel}
+                    actionLogs={actionLogs}
+                    isExecutingFreeAction={isExecutingFreeAction}
+                    onExecuteFreeAction={handleExecuteFreeAction}
+                    onFocusCountry={handleFocusCountry}
+                    feedback={feedback}
+                  />
+                )}
+
+                {rightTab === 'nation' && (
+                  <NationalPanel
+                    world={world}
+                    onUpdatePolicy={handleUpdatePolicy}
+                    onRecruit={handleRecruit}
+                    onEnactDirective={handleDirective}
+                    onLeaveCoalition={handleLeaveCoalition}
+                    onPeaceTreaty={handlePeaceTreaty}
+                    onLaunchOffensive={handleLaunchOffensive}
+                    onSelectCountry={handleFocusCountry}
+                    actionFeedback={feedback}
+                  />
+                )}
+              </div>
+            </aside>
+          </div>
+        </>
+      ) : (
+        /* SETUP / NATION SELECTION / CUSTOM NATION CREATION */
+        <>
+          <header className="h-14 px-3 sm:px-5 border-b border-amber-400/25 bg-[#091224] flex items-center justify-between gap-3 shrink-0 z-30">
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="text-base sm:text-lg font-display font-semibold tracking-tight bg-gradient-to-r from-amber-200 via-amber-400 to-amber-200 bg-clip-text text-transparent whitespace-nowrap shrink-0">
+                Orbis Diplomatica
+              </span>
+            </div>
+
+            <div className="hidden md:block text-xs text-slate-400">
+              Simulation géopolitique mondiale · {countriesCount} territoires &amp; États
+            </div>
+
+            <button
+              type="button"
+              onClick={handleResetGame}
+              title="Recommencer une partie (choisir un pays existant ou créer mon propre pays)"
+              className="min-h-[38px] flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-200 hover:text-white bg-[#152238] hover:bg-[#1E2F4C] border border-white/10 rounded-lg transition-colors cursor-pointer whitespace-nowrap"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+              <span>Recommencer</span>
+            </button>
+          </header>
+
+          {isChoosingStartMode ? (
+            <StartChoiceScreen
+              features={features}
+              spherePath={spherePath}
+              graticulePath={graticulePath}
+              countriesCount={countriesCount}
+              onSelectExistingMode={() => setSetupMode('EXISTING')}
+              onSelectCustomMode={() => setSetupMode('CREATE_CUSTOM')}
+            />
           ) : (
-          <aside
-            className={`${
-              mobileSheetOpen ? 'flex' : 'hidden lg:flex'
-            } flex-col w-full lg:w-[410px] xl:w-[440px] shrink-0 h-[54vh] sm:h-[52vh] lg:h-full bg-[#0A1428] border-t lg:border-t-0 lg:border-l border-amber-400/20 overflow-hidden`}
-          >
-            {activeHub === 'CHAT' ? (
-              <ChatHubPanel
-                world={world}
-                selectedTargetId={showingForeign ? world.selectedCountryId : null}
-                onSelectTargetCountry={(countryId) => handleSelectCountry(countryId)}
-                onFocusCountry={handleFocusCountry}
-                onSendAiMessage={handleSendAiMessage}
-                onCloseMobilePanel={() => setMobileSheetOpen(false)}
-                isAiSending={isAiSending}
-              />
-            ) : (
-              <ActionHubPanel
-                world={world}
-                dateLabel={dateLabel}
-                autoPlay={autoPlay}
-                onToggleAutoPlay={() => setAutoPlay((a) => !a)}
-                onAdvanceMonth={handleAdvanceMonth}
-                onTriggerCrisis={handleTriggerCrisis}
-                isGeneratingCrisis={isGeneratingCrisis}
-                onOpenStats={() => setShowStats(true)}
-                onResetGame={handleResetGame}
-                activeSubView={actionSubView}
-                onChangeSubView={setActionSubView}
-                selectedForeignId={showingForeign ? world.selectedCountryId : null}
-                onSelectForeignCountry={(countryId) => handleSelectCountry(countryId)}
-                onOpenChatForCountry={(countryId) => {
-                  handleSelectCountry(countryId);
-                  setActiveHub('CHAT');
-                  setMobileSheetOpen(true);
-                }}
-                onCloseMobilePanel={() => setMobileSheetOpen(false)}
-                actionLogs={actionLogs}
-                isExecutingFreeAction={isExecutingFreeAction}
-                onExecuteFreeAction={handleExecuteFreeAction}
-                onUpdatePolicy={handleUpdatePolicy}
-                onRecruit={handleRecruit}
-                onEnactDirective={handleDirective}
-                onLeaveCoalition={handleLeaveCoalition}
-                onPeaceTreaty={handlePeaceTreaty}
-                onLaunchOffensive={handleLaunchOffensive}
-                onFocusCountry={handleFocusCountry}
-                onBackToOwnCountry={() =>
-                  world.playerCountryId && handleSelectCountry(world.playerCountryId)
+            <div className="flex-1 flex flex-col lg:flex-row min-h-0 relative">
+              <main className="flex-1 relative min-h-[340px]">
+                <WorldMap
+                  features={features}
+                  spherePath={spherePath}
+                  graticulePath={graticulePath}
+                  world={world}
+                  mapMode={mapMode}
+                  onSelectCountry={isCreatingCustom ? handleCustomMapClick : handleSelectCountry}
+                  focusTarget={focusTarget}
+                  customPreview={memoizedCustomPreview}
+                />
+
+                <div className="absolute top-3 right-3 z-20 max-w-[calc(100vw-24px)] overflow-x-auto flex items-center gap-1 p-1 bg-[#0B1528]/95 border border-amber-400/25 rounded-lg shadow-lg">
+                  {(
+                    [
+                      ['politique', 'Politique'],
+                      ['relations', 'Relations'],
+                      ['alliances', 'Alliances'],
+                      ['economie', 'Économie'],
+                      ['militaire', 'Militaire'],
+                    ] as const
+                  ).map(([mode, label]) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setMapMode(mode)}
+                      className={`min-h-[34px] px-2.5 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+                        mapMode === mode
+                          ? 'bg-amber-500 text-slate-950 font-semibold'
+                          : 'text-slate-300 hover:text-white hover:bg-white/5'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                {isCreatingCustom && (
+                  <div className="absolute bottom-3 left-3 z-20 flex flex-wrap items-center gap-1.5 p-1.5 bg-[#0D1524]/95 border border-white/15 rounded-md shadow-xl">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCustomMapClickMode('relocate');
+                        handleOpenMapPicker('relocate');
+                      }}
+                      className={`min-h-[38px] px-3 py-1.5 text-xs font-semibold rounded transition-colors cursor-pointer whitespace-nowrap ${
+                        customMapClickMode === 'relocate'
+                          ? 'bg-amber-500 text-slate-950 hover:bg-amber-400'
+                          : 'bg-[#17263F] text-slate-100 hover:bg-[#1E3152]'
+                      }`}
+                    >
+                      Définir l’emplacement
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCustomMapClickMode('expand');
+                        handleOpenMapPicker('brush-add');
+                      }}
+                      className={`min-h-[38px] px-3 py-1.5 text-xs font-semibold rounded transition-colors cursor-pointer whitespace-nowrap ${
+                        customMapClickMode === 'expand'
+                          ? 'bg-sky-500 text-slate-950 hover:bg-sky-400'
+                          : 'bg-[#17263F] text-slate-200 hover:bg-[#1E3152]'
+                      }`}
+                    >
+                      Tracer les frontières ({customConfig.territoryIds.length})
+                    </button>
+                  </div>
+                )}
+              </main>
+
+              {setupMode === 'CREATE_CUSTOM' ? (
+                <CustomNationPanel
+                  world={world}
+                  config={customConfig}
+                  territoryConfirmVersion={territoryConfirmVersion}
+                  tutorialEnabledByDefault={true}
+                  onTutorialStateChange={handleTutorialStateChange}
+                  onChangeConfig={setCustomConfig}
+                  onFocusTerritory={handleFocusCountry}
+                  onToggleTerritory={handleToggleCustomTerritory}
+                  onOpenMapPicker={handleOpenMapPicker}
+                  onBackToModeChoice={() => setSetupMode('CHOOSE_MODE')}
+                  onStartCustomGame={handleStartCustomGame}
+                />
+              ) : (
+                <NationSelectPanel
+                  world={world}
+                  onSelectCountry={handleSelectCountry}
+                  onFocusCountry={handleFocusCountry}
+                  onStartGame={handleStartGame}
+                  onBackToModeChoice={() => setSetupMode('CHOOSE_MODE')}
+                />
+              )}
+            </div>
+          )}
+
+          {isCreatingCustom && isMapPickerOpen && (
+            <TerritoryPickerModal
+              features={features}
+              spherePath={spherePath}
+              graticulePath={graticulePath}
+              world={world}
+              config={customConfig}
+              initialTool={mapPickerInitialTool}
+              tutorialActive={isCustomTutorialTerritoryStep}
+              onUpdateConfig={setCustomConfig}
+              onConfirm={() => {
+                setIsMapPickerOpen(false);
+                setTerritoryConfirmVersion((v) => v + 1);
+                const anchorId = customConfig.territoryIds[0];
+                const anchor = anchorId ? world.countries[anchorId] : null;
+                if (anchor) {
+                  setFocusTarget([...(customConfig.capitalCoords || anchor.centroid)]);
+                  showToast(
+                    `Emplacement enregistré : ${customConfig.nameFr || 'Votre pays'} (${customConfig.territoryIds.length} territoire(s)).`
+                  );
                 }
-                onDeclareWar={handleDeclareWar}
-                onFormCoalition={handleFormCoalition}
-                onSendAid={handleSendAid}
-                onSignNonAggression={handleSignNonAggression}
-                onSignTradeDeal={handleSignTradeDeal}
-                onSendAiMessage={handleSendAiMessage}
-                isAiSending={isAiSending}
-                feedback={feedback}
-              />
-            )}
-          </aside>
-        )}
-        </div>
+              }}
+              onCancel={() => setIsMapPickerOpen(false)}
+            />
+          )}
+
+          {feedback && (
+            <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 px-4 py-2 bg-[#0E1728]/95 border border-amber-400/40 rounded-md shadow-xl text-xs font-medium text-amber-200 whitespace-nowrap">
+              {feedback}
+            </div>
+          )}
+        </>
       )}
 
-      {/* Modals */}
+      {/* Global Simulation Modals (Stats, Crisis, War Outcome, Epoch Summary) */}
       {showStats && (
         <WorldStatsModal
           world={world}
@@ -1284,37 +1553,6 @@ export default function App() {
           onClose={() => setSimSummary(null)}
           onFocusCountry={handleFocusCountry}
         />
-      )}
-
-      {isCreatingCustom && isMapPickerOpen && (
-        <TerritoryPickerModal
-          features={features}
-          spherePath={spherePath}
-          graticulePath={graticulePath}
-          world={world}
-          config={customConfig}
-          initialTool={mapPickerInitialTool}
-          tutorialActive={isCustomTutorialTerritoryStep}
-          onUpdateConfig={setCustomConfig}
-          onConfirm={() => {
-            setIsMapPickerOpen(false);
-            setTerritoryConfirmVersion((v) => v + 1);
-            const anchorId = customConfig.territoryIds[0];
-            const anchor = anchorId ? world.countries[anchorId] : null;
-            if (anchor) {
-              setFocusTarget([...(customConfig.capitalCoords || anchor.centroid)]);
-              showToast(
-                `Emplacement enregistré : ${customConfig.nameFr || 'Votre pays'} (${customConfig.territoryIds.length} territoire(s)).`
-              );
-            }
-          }}
-          onCancel={() => setIsMapPickerOpen(false)}
-        />
-      )}
-      {feedback && world.phase === 'SELECT_NATION' && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 px-4 py-2 bg-[#0E1728]/95 border border-amber-400/40 rounded-md shadow-xl text-xs font-medium text-amber-200 whitespace-nowrap">
-          {feedback}
-        </div>
       )}
     </div>
   );

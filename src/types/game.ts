@@ -146,6 +146,16 @@ export interface CountryState {
 
   policy: CountryPolicy;
   resources?: CountryResources;
+  influence?: number;
+}
+
+export interface MapProject {
+  id: string;
+  label: string;
+  kind: 'bridge' | 'trade' | 'alliance' | 'war' | 'nuclear' | 'infrastructure';
+  fromCountryId: string;
+  toCountryId?: string;
+  dateLabel: string;
 }
 
 export interface DiplomaticThreadMessage {
@@ -267,6 +277,7 @@ export interface WorldState {
   monthIndex: number; // 0 = Novembre 2026
   year: number;
   month: number; // 1-12
+  day?: number; // 1-30
   countries: Record<string, CountryState>;
   relations: Record<string, Record<string, number>>; // -100 to +100
   nonAggressionPacts: string[]; // sorted pair keys "idA|idB"
@@ -279,6 +290,7 @@ export interface WorldState {
   history: HistoricalSnapshot[];
   pendingCrisis: CrisisEvent | null;
   pendingWarOutcome?: WarOutcome | null;
+  mapProjects?: MapProject[];
 }
 
 export interface SimulationSummary {

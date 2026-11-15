@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ChevronDown, ChevronUp, Mail, Newspaper } from 'lucide-react';
 import { WorldState } from '../types/game';
+import { CountryFlag } from './CountryFlag';
 
 interface WorldChronicleProps {
   world: WorldState;
@@ -14,7 +15,7 @@ export const WorldChronicle: React.FC<WorldChronicleProps> = ({
   onResolveProposal,
 }) => {
   const [collapsed, setCollapsed] = useState(() =>
-    typeof window !== 'undefined' ? window.innerWidth < 1024 : false
+    typeof window !== 'undefined' ? window.innerWidth < 1200 : true
   );
   const [tab, setTab] = useState<'events' | 'inbox'>('events');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
@@ -34,12 +35,12 @@ export const WorldChronicle: React.FC<WorldChronicleProps> = ({
 
   return (
     <div
-      className={`absolute bottom-3 left-3 z-20 w-[calc(100vw-24px)] sm:w-[370px] lg:w-[400px] bg-[#0B1528]/95 border border-amber-400/25 rounded-xl shadow-2xl overflow-hidden transition-all ${
-        collapsed ? 'h-10' : 'h-[215px] sm:h-[245px] lg:h-[285px]'
+      className={`absolute bottom-3 left-3 z-20 w-[calc(100vw-72px)] sm:w-[360px] lg:w-[390px] bg-[#0B1322]/94 backdrop-blur-md border border-white/15 rounded-xl shadow-2xl overflow-hidden transition-all ${
+        collapsed ? 'h-10' : 'h-[210px] sm:h-[245px]'
       } flex flex-col`}
     >
       {/* Header Bar */}
-      <div className="h-10 px-3 border-b border-white/10 flex items-center justify-between gap-2 shrink-0 bg-[#111B2D]">
+      <div className="h-10 px-3 border-b border-white/10 flex items-center justify-between gap-2 shrink-0 bg-[#101A2D]">
         <div className="flex items-center gap-1">
           <button
             type="button"
@@ -47,12 +48,14 @@ export const WorldChronicle: React.FC<WorldChronicleProps> = ({
               setTab('events');
               setCollapsed(false);
             }}
-            className={`px-2 py-1 text-xs font-medium rounded flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
-              tab === 'events' ? 'text-amber-300 bg-white/5' : 'text-slate-400 hover:text-white'
+            className={`px-2 py-1 text-xs font-medium rounded-md flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
+              tab === 'events' && !collapsed
+                ? 'text-amber-300 bg-white/10'
+                : 'text-slate-300 hover:text-white'
             }`}
           >
             <Newspaper className="w-3.5 h-3.5" />
-            <span>Chronique mondiale</span>
+            <span>Chronique ({world.events.length})</span>
           </button>
 
           <button
@@ -61,14 +64,16 @@ export const WorldChronicle: React.FC<WorldChronicleProps> = ({
               setTab('inbox');
               setCollapsed(false);
             }}
-            className={`px-2 py-1 text-xs font-medium rounded flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
-              tab === 'inbox' ? 'text-amber-300 bg-white/5' : 'text-slate-400 hover:text-white'
+            className={`px-2 py-1 text-xs font-medium rounded-md flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
+              tab === 'inbox' && !collapsed
+                ? 'text-amber-300 bg-white/10'
+                : proposalCount > 0
+                  ? 'text-amber-200 hover:text-white'
+                  : 'text-slate-300 hover:text-white'
             }`}
           >
             <Mail className="w-3.5 h-3.5" />
-            <span>
-              Dépêches{proposalCount > 0 ? ` (${proposalCount})` : ''}
-            </span>
+            <span>Dépêches{proposalCount > 0 ? ` (${proposalCount})` : ''}</span>
           </button>
         </div>
 
@@ -76,15 +81,16 @@ export const WorldChronicle: React.FC<WorldChronicleProps> = ({
           type="button"
           onClick={() => setCollapsed((c) => !c)}
           className="p-1 text-slate-400 hover:text-white cursor-pointer"
+          aria-label={collapsed ? 'Ouvrir la chronique' : 'Réduire la chronique'}
           title={collapsed ? 'Agrandir' : 'Réduire'}
         >
           {collapsed ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
         </button>
       </div>
 
-      {/* Filter Strip when viewing Chronicle */}
+      {/* Category Filter Strip */}
       {!collapsed && tab === 'events' && (
-        <div className="px-3 py-1.5 border-b border-white/5 bg-[#0E1829] flex items-center gap-2 overflow-x-auto shrink-0">
+        <div className="px-3 py-1.5 border-b border-white/10 bg-[#0D1628] flex items-center gap-3 overflow-x-auto shrink-0">
           {(
             [
               ['ALL', 'Tous'],
@@ -110,56 +116,72 @@ export const WorldChronicle: React.FC<WorldChronicleProps> = ({
         </div>
       )}
 
-      {/* Body */}
+      {/* Content */}
       {!collapsed && (
-        <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
+        <div className="flex-1 overflow-y-auto p-3 space-y-2">
           {tab === 'events' ? (
             filteredEvents.length === 0 ? (
-              <p className="text-xs text-slate-500">Aucun événement dans cette catégorie.</p>
+              <p className="text-xs text-slate-400">Aucun événement dans cette catégorie.</p>
             ) : (
-              filteredEvents.slice(0, 45).map((ev) => (
-                <div
-                  key={ev.id}
-                  onClick={() => {
-                    if (ev.involvedCountryIds[0]) {
-                      onFocusCountry(ev.involvedCountryIds[0]);
-                    }
-                  }}
-                  className="p-2.5 bg-[#121D30] hover:bg-[#17253D] border border-white/5 rounded-md cursor-pointer transition-colors"
-                >
-                  <div className="flex items-center justify-between text-[11px] text-slate-400">
-                    <span
-                      className={`font-medium ${
-                        ev.category === 'GUERRE'
-                          ? 'text-rose-400'
-                          : ev.category === 'PAIX'
-                            ? 'text-emerald-400'
-                            : ev.category === 'COMMERCE'
-                              ? 'text-teal-300'
-                              : ev.category === 'ÉCONOMIE'
-                                ? 'text-amber-300'
-                                : ev.category === 'CRISE'
-                                  ? 'text-orange-400'
-                                  : ev.category === 'POLITIQUE'
-                                    ? 'text-indigo-300'
-                                    : 'text-sky-300'
-                      }`}
-                    >
-                      {ev.category}
-                    </span>
-                    <span className="font-mono-tabular">{ev.dateLabel}</span>
-                  </div>
-                  <div className="text-xs font-semibold text-slate-100 mt-0.5">{ev.title}</div>
-                  <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
-                    {ev.description}
-                  </p>
-                </div>
-              ))
+              filteredEvents.slice(0, 45).map((ev) => {
+                const leadCountry = ev.involvedCountryIds[0]
+                  ? world.countries[ev.involvedCountryIds[0]]
+                  : null;
+                return (
+                  <button
+                    key={ev.id}
+                    type="button"
+                    onClick={() => {
+                      if (ev.involvedCountryIds[0]) {
+                        onFocusCountry(ev.involvedCountryIds[0]);
+                      }
+                    }}
+                    className="w-full text-left p-2.5 bg-[#121D32] hover:bg-[#182640] border border-white/10 rounded-lg cursor-pointer transition-colors"
+                  >
+                    <div className="flex items-center justify-between text-[11px] text-slate-400">
+                      <span className="flex items-center gap-1.5">
+                        {leadCountry && (
+                          <CountryFlag
+                            flag={leadCountry.flag}
+                            fallbackColor={leadCountry.color}
+                            name={leadCountry.nameFr}
+                            className="w-4 h-2.5 rounded-xs border border-white/20 shrink-0"
+                          />
+                        )}
+                        <span
+                          className={`font-semibold ${
+                            ev.category === 'GUERRE'
+                              ? 'text-rose-400'
+                              : ev.category === 'PAIX'
+                                ? 'text-emerald-400'
+                                : ev.category === 'COMMERCE'
+                                  ? 'text-teal-300'
+                                  : ev.category === 'ÉCONOMIE'
+                                    ? 'text-amber-300'
+                                    : ev.category === 'CRISE'
+                                      ? 'text-orange-400'
+                                      : ev.category === 'POLITIQUE'
+                                        ? 'text-indigo-300'
+                                        : 'text-sky-300'
+                          }`}
+                        >
+                          {ev.category}
+                        </span>
+                      </span>
+                      <span className="font-mono-tabular">{ev.dateLabel}</span>
+                    </div>
+                    <div className="text-xs font-semibold text-slate-100 mt-1">{ev.title}</div>
+                    <p className="text-[11px] text-slate-300 mt-0.5 leading-relaxed">
+                      {ev.description}
+                    </p>
+                  </button>
+                );
+              })
             )
           ) : world.proposals.length === 0 ? (
-            <p className="text-xs text-slate-500 p-2">
+            <p className="text-xs text-slate-400 p-2">
               Aucune proposition diplomatique en attente. Les dirigeants IA vous contacteront au
-              fil des mois.
+              fil du temps.
             </p>
           ) : (
             world.proposals.map((prop) => {
@@ -167,15 +189,23 @@ export const WorldChronicle: React.FC<WorldChronicleProps> = ({
               return (
                 <div
                   key={prop.id}
-                  className="p-3 bg-[#142034] border border-amber-400/25 rounded-md space-y-2"
+                  className="p-3 bg-[#131F36] border border-amber-400/25 rounded-lg space-y-2"
                 >
                   <div className="flex items-center justify-between text-[11px] text-amber-300">
                     <button
                       type="button"
                       onClick={() => onFocusCountry(prop.fromCountryId)}
-                      className="font-semibold hover:underline cursor-pointer"
+                      className="font-semibold hover:underline cursor-pointer flex items-center gap-1.5"
                     >
-                      {sender?.nameFr ?? prop.fromCountryId}
+                      {sender && (
+                        <CountryFlag
+                          flag={sender.flag}
+                          fallbackColor={sender.color}
+                          name={sender.nameFr}
+                          className="w-4.5 h-3 rounded-xs border border-white/20 shrink-0"
+                        />
+                      )}
+                      <span>{sender?.nameFr ?? prop.fromCountryId}</span>
                     </button>
                     <span className="text-slate-400 font-mono-tabular">{prop.dateLabel}</span>
                   </div>
@@ -185,14 +215,14 @@ export const WorldChronicle: React.FC<WorldChronicleProps> = ({
                     <button
                       type="button"
                       onClick={() => onResolveProposal(prop.id, true)}
-                      className="flex-1 py-1.5 text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white rounded cursor-pointer transition-colors"
+                      className="flex-1 min-h-[34px] py-1 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded-md cursor-pointer transition-colors"
                     >
                       Accepter
                     </button>
                     <button
                       type="button"
                       onClick={() => onResolveProposal(prop.id, false)}
-                      className="flex-1 py-1.5 text-xs font-medium bg-white/10 hover:bg-white/20 text-slate-200 rounded cursor-pointer transition-colors"
+                      className="flex-1 min-h-[34px] py-1 text-xs font-medium bg-white/10 hover:bg-white/20 text-slate-200 rounded-md cursor-pointer transition-colors"
                     >
                       Refuser
                     </button>

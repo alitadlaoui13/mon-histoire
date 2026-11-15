@@ -1,5 +1,7 @@
 import {
   CountryState,
+  MapProject,
+  RegimeType,
   WorldEvent,
   WorldState,
 } from '../types/game';
@@ -51,6 +53,7 @@ export interface FreeActionEffect {
   playerTechDelta: number;
   playerPopulationPctDelta: number;
   globalRelationDelta: number;
+  newRegime?: RegimeType;
   targetImpacts: FreeActionTargetImpact[];
   usedAi?: boolean;
 }
@@ -224,6 +227,10 @@ export function interpretFreeActionLocally(
     );
   const isSocial =
     /\b(social|sante|hopital|ecole|pouvoir d achat|stabilite|logement|retraite)\b/.test(norm);
+  const isRegimeChange =
+    /\b(regime|constitution|monarchie|republique|democratie|autoritaire|dictature|presidentiel|federale|empire|systeme politique|forme de gouvernement)\b/.test(
+      norm
+    );
 
   const wantsMultiple = /\b(plusieurs|tous|europe|afrique|asie|monde|voisins|pays)\b/.test(
     norm
@@ -263,6 +270,7 @@ export function interpretFreeActionLocally(
   let playerTechDelta = 0;
   let playerPopulationPctDelta = 0;
   let globalRelationDelta = 0;
+  let newRegime: RegimeType | undefined;
   let category: FreeActionEffect['category'] = 'POLITIQUE';
   const narratives: string[] = [];
   const targetImpacts: FreeActionTargetImpact[] = [];
@@ -482,6 +490,56 @@ export function interpretFreeActionLocally(
     );
   }
 
+  // 11. Political regime modification
+  if (isRegimeChange && !isWar) {
+    category = 'POLITIQUE';
+    const ALL_REGIMES: RegimeType[] = [
+      'République démocratique',
+      'Monarchie constitutionnelle',
+      'République fédérale',
+      'Régime présidentiel',
+      'État autoritaire',
+      'République populaire',
+      'Monarchie absolue',
+    ];
+
+    if (/\b(monarchie absolue|empire|absolutiste)\b/.test(norm)) {
+      newRegime = 'Monarchie absolue';
+    } else if (/\b(monarchie|roi|royaume|couronne)\b/.test(norm)) {
+      newRegime = 'Monarchie constitutionnelle';
+    } else if (/\b(federale|federal|confederation)\b/.test(norm)) {
+      newRegime = 'République fédérale';
+    } else if (/\b(autoritaire|dictature|junte|pouvoirs speciaux)\b/.test(norm)) {
+      newRegime = 'État autoritaire';
+    } else if (/\b(populaire|socialiste|communiste)\b/.test(norm)) {
+      newRegime = 'République populaire';
+    } else if (/\b(presidentiel|presidentielle)\b/.test(norm)) {
+      newRegime = 'Régime présidentiel';
+    } else if (/\b(democratique|democratie|parlementaire|republique)\b/.test(norm)) {
+      newRegime = 'République démocratique';
+    } else {
+      const idx = ALL_REGIMES.indexOf(player.regime);
+      newRegime = ALL_REGIMES[(idx + 1) % ALL_REGIMES.length];
+    }
+
+    if (newRegime === player.regime) {
+      const idx = ALL_REGIMES.indexOf(player.regime);
+      newRegime = ALL_REGIMES[(idx + 1) % ALL_REGIMES.length];
+    }
+
+    const isDemocratic =
+      newRegime === 'République démocratique' ||
+      newRegime === 'Monarchie constitutionnelle' ||
+      newRegime === 'République fédérale';
+    playerStabilityDelta += isDemocratic ? 4 : -4;
+    playerApprovalDelta += isDemocratic ? 6 : -3;
+    globalRelationDelta += isDemocratic ? 3 : -3;
+
+    narratives.push(
+      `Réforme constitutionnelle majeure : ${player.nameFr} adopte un nouveau régime politique (${newRegime}), redéfinissant l’organisation des pouvoirs et son image diplomatique.`
+    );
+  }
+
   // Generic creative decree fallback (ensures literally ANY sentence still has coherent effects!)
   if (narratives.length === 0) {
     const cost = Math.min(10, Math.max(2, Math.round(player.gdp * 0.005)));
@@ -517,6 +575,7 @@ export function interpretFreeActionLocally(
     playerTechDelta: Number(playerTechDelta.toFixed(2)),
     playerPopulationPctDelta: Number(playerPopulationPctDelta.toFixed(2)),
     globalRelationDelta: Math.round(globalRelationDelta),
+    newRegime,
     targetImpacts,
     usedAi: false,
   };
@@ -575,8 +634,17 @@ export function applyFreeActionEffect(
     Number((p.population * (1 + effect.playerPopulationPctDelta / 100)).toFixed(1))
   );
 
+  const nextInfluence = Math.max(
+    0,
+    Math.min(
+      100,
+      Math.round((p.influence ?? 50) + effect.globalRelationDelta + (effect.targetImpacts.length > 0 ? 2 : 1))
+    )
+  );
+
   next.countries[playerId] = {
     ...p,
+    regime: effect.newRegime ?? p.regime,
     treasury: nextTreasury,
     gdp: nextGdp,
     army: nextArmy,
@@ -584,7 +652,12 @@ export function applyFreeActionEffect(
     approval: nextApproval,
     techLevel: nextTech,
     population: nextPop,
+    influence: nextInfluence,
   };
+
+  if (effect.newRegime && effect.newRegime !== p.regime) {
+    statBadges.push(`Régime : ${effect.newRegime}`);
+  }
 
   if (effect.playerTreasuryDelta !== 0) {
     statBadges.push(
@@ -720,6 +793,56 @@ export function applyFreeActionEffect(
       }
     }
   }
+
+  // Materialize living projects/events directly on the World Map
+  const existingProjects = [...(next.mapProjects ?? [])];
+  const normPrompt = normalizeText(rawPrompt);
+  const isBridgeOrLink = /\b(pont|tunnel|canal|corridor|ligne|tgv|cable)\b/.test(normPrompt);
+  const newProjects: MapProject[] = [];
+
+  if (effect.targetImpacts.length >= 2 && isBridgeOrLink) {
+    // Connect the two mentioned/involved countries (e.g., Espagne <-> Maroc)
+    newProjects.push({
+      id: `proj-${Date.now()}-bridge`,
+      label: effect.summaryTitle,
+      kind: 'bridge',
+      fromCountryId: effect.targetImpacts[0].countryId,
+      toCountryId: effect.targetImpacts[1].countryId,
+      dateLabel,
+    });
+  } else if (effect.targetImpacts.length > 0) {
+    for (const ti of effect.targetImpacts.slice(0, 4)) {
+      const kind: MapProject['kind'] = ti.nuclearStrike
+        ? 'nuclear'
+        : ti.declareWar
+          ? 'war'
+          : isBridgeOrLink
+            ? 'bridge'
+            : ti.formEconomicUnion || ti.signTradeDeal
+              ? 'trade'
+              : ti.formAlliance
+                ? 'alliance'
+                : 'infrastructure';
+      newProjects.push({
+        id: `proj-${Date.now()}-${ti.countryId}`,
+        label: effect.summaryTitle,
+        kind,
+        fromCountryId: playerId,
+        toCountryId: ti.countryId,
+        dateLabel,
+      });
+    }
+  } else {
+    newProjects.push({
+      id: `proj-${Date.now()}-dom`,
+      label: effect.summaryTitle,
+      kind: 'infrastructure',
+      fromCountryId: playerId,
+      dateLabel,
+    });
+  }
+
+  next.mapProjects = [...newProjects, ...existingProjects].slice(0, 32);
 
   // Add WorldEvent to Chronicle
   const evt: WorldEvent = {

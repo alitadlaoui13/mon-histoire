@@ -488,6 +488,7 @@ Règles strictes :
    - "playerTechDelta" : nombre entre -0.2 et +0.25.
    - "playerPopulationPctDelta" : variation en % (entre -10 et +3).
    - "globalRelationDelta" : impact diplomatique sur les autres pays du monde (entre -35 et +15).
+   - "newRegime" (optionnel, uniquement si le joueur modifie son régime politique) : parmi "République démocratique", "Monarchie constitutionnelle", "République fédérale", "État autoritaire", "République populaire", "Monarchie absolue", "Régime présidentiel".
    - "targetImpacts" : liste des pays concernés avec leur "countryId" exact, "countryName", deltas ("relationDelta", "gdpPctDelta", "armyDeltaK", "stabilityDelta", "populationPctDelta") et drapeaux booléens ("declareWar", "makePeace", "formAlliance", "formEconomicUnion", "signTradeDeal", "signNonAggression", "nuclearStrike").
 3. Rédige "summaryTitle" (titre court, max 60 caractères) et "narrative" (2 à 4 phrases en français percutant décrivant l'exécution et les répercussions mondiales).`;
 
@@ -512,6 +513,7 @@ Règles strictes :
               playerTechDelta: { type: Type.NUMBER },
               playerPopulationPctDelta: { type: Type.NUMBER },
               globalRelationDelta: { type: Type.INTEGER },
+              newRegime: { type: Type.STRING },
               targetImpacts: {
                 type: Type.ARRAY,
                 items: {
