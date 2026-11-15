@@ -362,6 +362,7 @@ Génère UN événement géopolitique mondial marquant et réaliste en français
     app.use(vite.middlewares);
   } else {
     const distPath = path.resolve(__dirname, "dist");
+    app.use("/mon-histoire", express.static(distPath));
     app.use(express.static(distPath));
     app.get("/{*path}", (_req, res) => {
       res.sendFile(path.join(distPath, "index.html"));

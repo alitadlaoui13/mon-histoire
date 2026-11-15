@@ -47,6 +47,11 @@ import {
   startGameWithCustomCountry,
   updatePlayerPolicy,
 } from './engine/simulationEngine';
+import {
+  buildLocalCrisisEvent,
+  buildLocalDiplomaticReply,
+  DiplomacyReplyResult,
+} from './engine/diplomacyFallback';
 import { createInitialWorldState, getMapData } from './engine/worldInit';
 import {
   CountryPolicy,
@@ -497,37 +502,63 @@ export default function App() {
 
       setIsAiSending(true);
       try {
-        const res = await fetch('/api/diplomacy/message', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        const relationVal = getRelation(world, player.id, target.id);
+        const isAtWarVal = Boolean(isAtWarBetween(world, player.id, target.id));
+        const isAlliedVal = Boolean(
+          sharesAlliance(world.alliances, player.id, target.id, 'ALLIANCE')
+        );
+        const sameEcoVal = Boolean(
+          sharesAlliance(world.alliances, player.id, target.id, 'ECONOMIC_UNION')
+        );
+
+        let data: DiplomacyReplyResult | null = null;
+        try {
+          const res = await fetch('/api/diplomacy/message', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              playerCountry: player,
+              targetCountry: target,
+              relation: relationVal,
+              isAtWar: isAtWarVal,
+              isAllied: isAlliedVal,
+              sameEconomicUnion: sameEcoVal,
+              message,
+              history: existingHistory.map((m) => ({
+                sender: m.senderLabel,
+                text: m.text,
+              })),
+              currentDateLabel: dateLabel,
+            }),
+          });
+          const contentType = res.headers.get('content-type') || '';
+          if (res.ok && contentType.includes('application/json')) {
+            const parsed = (await res.json()) as DiplomacyReplyResult;
+            if (parsed?.reply) {
+              data = parsed;
+            }
+          }
+        } catch {
+          // Static hosting (GitHub Pages) fallback below
+        }
+
+        const resolvedData: DiplomacyReplyResult =
+          data ??
+          buildLocalDiplomaticReply({
             playerCountry: player,
             targetCountry: target,
-            relation: getRelation(world, player.id, target.id),
-            isAtWar: Boolean(isAtWarBetween(world, player.id, target.id)),
-            isAllied: Boolean(sharesAlliance(world.alliances, player.id, target.id, 'ALLIANCE')),
-            sameEconomicUnion: Boolean(
-              sharesAlliance(world.alliances, player.id, target.id, 'ECONOMIC_UNION')
-            ),
+            relation: relationVal,
+            isAtWar: isAtWarVal,
+            isAllied: isAlliedVal,
+            sameEconomicUnion: sameEcoVal,
             message,
-            history: existingHistory.map((m) => ({
-              sender: m.senderLabel,
-              text: m.text,
-            })),
-            currentDateLabel: dateLabel,
-          }),
-        });
-
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data.error || 'Erreur de communication diplomatique');
-        }
+          });
 
         const aiReplyMsg = {
           id: `msg-ai-${Date.now()}`,
           sender: 'ai' as const,
           senderLabel: `${target.leaderTitle} ${target.leaderName}`,
-          text: data.reply,
+          text: resolvedData.reply,
           dateLabel,
         };
 
@@ -542,19 +573,19 @@ export default function App() {
 
           const rels = { ...next.relations };
           const currentRel = getRelation(next, player.id, target.id);
-          setRelation(rels, player.id, target.id, currentRel + (data.relationDelta || 0));
+          setRelation(rels, player.id, target.id, currentRel + (resolvedData.relationDelta || 0));
           next.relations = rels;
 
-          if (data.action === 'ACCEPT_ALLIANCE') {
+          if (resolvedData.action === 'ACCEPT_ALLIANCE') {
             next = formTreatyCoalition(next, 'ALLIANCE', player.id, target.id);
-          } else if (data.action === 'ACCEPT_ECONOMIC_UNION') {
+          } else if (resolvedData.action === 'ACCEPT_ECONOMIC_UNION') {
             next = formTreatyCoalition(next, 'ECONOMIC_UNION', player.id, target.id);
-          } else if (data.action === 'ACCEPT_PEACE') {
+          } else if (resolvedData.action === 'ACCEPT_PEACE') {
             const w = isAtWarBetween(next, player.id, target.id);
             if (w) next = resolvePeaceTreaty(next, w.id, 'STATUS_QUO');
-          } else if (data.action === 'DECLARE_WAR') {
+          } else if (resolvedData.action === 'DECLARE_WAR') {
             next = declareWarBetween(next, target.id, player.id);
-          } else if (data.action === 'PROPOSE_NON_AGGRESSION') {
+          } else if (resolvedData.action === 'PROPOSE_NON_AGGRESSION') {
             const pk = pairKey(player.id, target.id);
             if (!next.nonAggressionPacts.includes(pk)) {
               next.nonAggressionPacts = [...next.nonAggressionPacts, pk];
@@ -563,14 +594,11 @@ export default function App() {
 
           return next;
         });
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : 'Échec de l’envoi';
-        showToast(msg);
       } finally {
         setIsAiSending(false);
       }
     },
-    [world, isAiSending, showToast]
+    [world, isAiSending]
   );
 
   const handleTriggerCrisis = useCallback(async () => {
@@ -586,44 +614,37 @@ export default function App() {
         .slice(0, 6)
         .map((c) => ({ nameFr: c.nameFr, gdp: Math.round(c.gdp) }));
 
-      const res = await fetch('/api/simulation/crisis', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          playerCountry: player,
-          topPowers,
-          currentDateLabel: formatDateFr(world.year, world.month),
-          activeWarsCount: world.wars.length,
-        }),
-      });
-      const data = await res.json();
-      if (data.event) {
-        setWorld((prev) => ({ ...prev, pendingCrisis: data.event }));
-      } else {
-        // Fallback deterministic crisis if API key is absent
-        setWorld((prev) => ({
-          ...prev,
-          pendingCrisis: {
-            title: 'Sommet énergétique et commercial international',
-            description:
-              'Une flambée des coûts maritimes fragilise les chaînes d’approvisionnement mondiales. Votre gouvernement doit arbitrer sa réponse stratégique.',
-            optionALabel: 'Subventionner l’industrie et sécuriser les corridors',
-            optionATreasuryDelta: -12,
-            optionAStabilityDelta: 5,
-            optionAGdpPctDelta: 1.4,
-            optionBLabel: 'Maintenir la rigueur budgétaire et relever les tarifs',
-            optionBTreasuryDelta: 8,
-            optionBStabilityDelta: -4,
-            optionBGdpPctDelta: -0.5,
-          },
-        }));
+      let eventData = null;
+      try {
+        const res = await fetch('/api/simulation/crisis', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            playerCountry: player,
+            topPowers,
+            currentDateLabel: formatDateFr(world.year, world.month),
+            activeWarsCount: world.wars.length,
+          }),
+        });
+        const contentType = res.headers.get('content-type') || '';
+        if (res.ok && contentType.includes('application/json')) {
+          const json = await res.json();
+          if (json?.event) {
+            eventData = json.event;
+          }
+        }
+      } catch {
+        // Static hosting (GitHub Pages) fallback below
       }
-    } catch {
-      showToast('Impossible de joindre le conseil géopolitique IA.');
+
+      setWorld((prev) => ({
+        ...prev,
+        pendingCrisis: eventData ?? buildLocalCrisisEvent(),
+      }));
     } finally {
       setIsGeneratingCrisis(false);
     }
-  }, [world, isGeneratingCrisis, showToast]);
+  }, [world, isGeneratingCrisis]);
 
   const handleResolveCrisis = useCallback((option: 'A' | 'B') => {
     setWorld((prev) => {
