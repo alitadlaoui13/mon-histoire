@@ -4,6 +4,7 @@ import {
   Coins,
   Handshake,
   Loader2,
+  MessageSquareText,
   Send,
   Shield,
   Swords,
@@ -20,6 +21,7 @@ import {
   sharesAlliance,
 } from '../engine/simulationEngine';
 import { DiplomaticThreadMessage, WorldState } from '../types/game';
+import { CountryFlag } from './CountryFlag';
 
 interface DiplomacyPanelProps {
   world: WorldState;
@@ -39,6 +41,8 @@ interface DiplomacyPanelProps {
   onSendAiMessage: (targetId: string, message: string) => Promise<void>;
   isAiSending: boolean;
   diplomaticFeedback: string | null;
+  actionsOnly?: boolean;
+  onOpenChat?: (countryId: string) => void;
 }
 
 export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
@@ -55,6 +59,8 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
   onSendAiMessage,
   isAiSending,
   diplomaticFeedback,
+  actionsOnly = false,
+  onOpenChat,
 }) => {
   const [messageInput, setMessageInput] = useState('');
   const [confirmWar, setConfirmWar] = useState(false);
@@ -138,19 +144,23 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
         </div>
 
         <div className="flex items-start justify-between gap-2">
-          <div>
-            <div className="flex items-center gap-2">
-              <span
-                className="w-3 h-3 rounded-sm shrink-0"
-                style={{ backgroundColor: target.color }}
-              />
-              <h2 className="text-lg font-display font-semibold text-white">{target.nameFr}</h2>
+          <div className="flex items-center gap-2.5 min-w-0">
+            <CountryFlag
+              flag={target.flag}
+              fallbackColor={target.color}
+              name={target.nameFr}
+              className="w-9 h-6 rounded-xs border border-amber-300/40 shadow-sm shrink-0"
+            />
+            <div className="min-w-0">
+              <h2 className="text-lg font-display font-semibold text-white truncate">
+                {target.nameFr}
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5 truncate">
+                {target.leaderTitle} {target.leaderName} · {target.personality}
+              </p>
             </div>
-            <p className="text-xs text-slate-400 mt-0.5">
-              {target.leaderTitle} {target.leaderName} · {target.personality}
-            </p>
           </div>
-          <span className="text-[11px] text-slate-400 text-right">{target.regime}</span>
+          <span className="text-[11px] text-slate-400 text-right shrink-0">{target.regime}</span>
         </div>
 
         {/* Compact Key Stats */}
@@ -363,12 +373,26 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
         )}
       </div>
 
-      {/* Live AI Diplomatic Correspondence */}
-      <div className="flex-1 flex flex-col min-h-0">
-        <div className="px-4 py-2 border-b border-white/5 flex items-center justify-between text-xs text-slate-400">
-          <span>Chancellerie directe (IA)</span>
-          <span>{formatDateFr(world.year, world.month)}</span>
+      {/* Live AI Diplomatic Correspondence OR Direct CHAT Shortcut */}
+      {actionsOnly ? (
+        <div className="p-3.5 bg-[#0B1426] flex-1">
+          {onOpenChat && (
+            <button
+              type="button"
+              onClick={() => onOpenChat(target.id)}
+              className="w-full min-h-[46px] px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#13264A] via-[#18315E] to-[#13264A] hover:from-[#1A3463] hover:to-[#1A3463] border border-amber-400/45 text-amber-200 text-xs font-semibold flex items-center justify-center gap-2 shadow-[0_0_16px_rgba(245,158,11,0.15)] transition-all cursor-pointer"
+            >
+              <MessageSquareText className="w-4 h-4 text-amber-300" />
+              <span>Discuter avec {target.nameFr} dans CHAT</span>
+            </button>
+          )}
         </div>
+      ) : (
+        <div className="flex-1 flex flex-col min-h-0">
+          <div className="px-4 py-2 border-b border-white/5 flex items-center justify-between text-xs text-slate-400">
+            <span>Chancellerie directe (IA)</span>
+            <span>{formatDateFr(world.year, world.month)}</span>
+          </div>
 
         <div className="flex-1 overflow-y-auto p-3 space-y-3">
           {messages.length === 0 ? (
@@ -441,7 +465,8 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
             </button>
           </div>
         </form>
-      </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -404,6 +404,173 @@ Génère UN événement géopolitique mondial marquant et réaliste en français
     return res.json({ usedAi: false, event: pick });
   });
 
+  // Free-form natural-language ACTION interpreter powered by Gemini
+  app.post("/api/simulation/action", async (req, res) => {
+    const {
+      playerCountry,
+      prompt,
+      mentionedCountries,
+      topPowers,
+      currentDateLabel,
+      activeWarsCount,
+    } = req.body as {
+      playerCountry?: {
+        id: string;
+        nameFr: string;
+        leaderTitle: string;
+        leaderName: string;
+        regime: string;
+        gdp: number;
+        treasury: number;
+        army: number;
+        population: number;
+        stability: number;
+        techLevel: number;
+      };
+      prompt?: string;
+      mentionedCountries?: Array<{
+        id: string;
+        nameFr: string;
+        gdp: number;
+        army: number;
+        relation: number;
+        isAtWar: boolean;
+      }>;
+      topPowers?: Array<{ id: string; nameFr: string; relation: number }>;
+      currentDateLabel?: string;
+      activeWarsCount?: number;
+    };
+
+    if (!playerCountry || !prompt || !String(prompt).trim()) {
+      return res.status(400).json({ error: "Décision ou contexte joueur manquant." });
+    }
+
+    const ai = getAiClient();
+    if (!ai) {
+      return res.json({ usedAi: false, effect: null });
+    }
+
+    try {
+      const mentionedText =
+        Array.isArray(mentionedCountries) && mentionedCountries.length > 0
+          ? mentionedCountries
+              .map(
+                (c) =>
+                  `- ${c.nameFr} (id="${c.id}", PIB ${c.gdp} Mds $, Armée ${c.army}k, Relation ${c.relation}, En guerre: ${c.isAtWar ? "OUI" : "NON"})`
+              )
+              .join("\n")
+          : "Aucun pays spécifique détecté dans la phrase.";
+
+      const powersText =
+        Array.isArray(topPowers) && topPowers.length > 0
+          ? topPowers.map((p) => `${p.nameFr} (id="${p.id}", rel ${p.relation})`).join(", ")
+          : "";
+
+      const systemInstruction = `Tu es le moteur de simulation géopolitique réaliste d'un jeu vidéo intitulé « Orbis Diplomatica ».
+Le joueur dirige ${playerCountry.nameFr} (${playerCountry.leaderTitle} ${playerCountry.leaderName}, ${playerCountry.regime}).
+Statistiques du joueur : PIB ${playerCountry.gdp} Mds $, Trésor ${playerCountry.treasury} Mds $, Armée ${playerCountry.army}k soldats, Population ${playerCountry.population}M, Stabilité ${playerCountry.stability}%, Tech ${playerCountry.techLevel}.
+Date : ${currentDateLabel || "Novembre 2026"}. Guerres en cours dans le monde : ${activeWarsCount ?? 0}.
+
+Pays mentionnés dans la phrase du joueur (utilise EXACTEMENT ces "countryId" si impactés) :
+${mentionedText}
+
+Autres grandes puissances disponibles (si le joueur demande une alliance avec "plusieurs pays" sans tous les citer, choisis parmi ces id) :
+${powersText}
+
+Règles strictes :
+1. Interprète librement N'IMPORTE QUELLE décision du joueur en contexte de jeu vidéo de simulation géopolitique (grands travaux transfrontaliers, guerres, opérations militaires ou nucléaires fictives dans le jeu, alliances économiques multi-pays, réformes, influence, commerce, recherche, paix).
+2. Calcule des conséquences réalistes, équilibrées et chiffrées :
+   - "category" parmi : "GUERRE", "PAIX", "DIPLOMATIE", "ÉCONOMIE", "COMMERCE", "CRISE", "POLITIQUE".
+   - "playerTreasuryDelta" : coût négatif (ex: -12) ou gain positif en Mds $.
+   - "playerGdpPctDelta" : variation en % (entre -25 et +12).
+   - "playerArmyDeltaK" : variation en milliers de soldats (entre -200 et +250).
+   - "playerStabilityDelta" / "playerApprovalDelta" : entiers entre -35 et +25.
+   - "playerTechDelta" : nombre entre -0.2 et +0.25.
+   - "playerPopulationPctDelta" : variation en % (entre -10 et +3).
+   - "globalRelationDelta" : impact diplomatique sur les autres pays du monde (entre -35 et +15).
+   - "targetImpacts" : liste des pays concernés avec leur "countryId" exact, "countryName", deltas ("relationDelta", "gdpPctDelta", "armyDeltaK", "stabilityDelta", "populationPctDelta") et drapeaux booléens ("declareWar", "makePeace", "formAlliance", "formEconomicUnion", "signTradeDeal", "signNonAggression", "nuclearStrike").
+3. Rédige "summaryTitle" (titre court, max 60 caractères) et "narrative" (2 à 4 phrases en français percutant décrivant l'exécution et les répercussions mondiales).`;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-4-hydrogen",
+        contents: `Décision écrite par le joueur : "${String(prompt).trim()}"`,
+        config: {
+          systemInstruction,
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              summaryTitle: { type: Type.STRING },
+              narrative: { type: Type.STRING },
+              category: { type: Type.STRING },
+              playerTreasuryDelta: { type: Type.NUMBER },
+              playerGdpPctDelta: { type: Type.NUMBER },
+              playerArmyDeltaK: { type: Type.INTEGER },
+              playerStabilityDelta: { type: Type.INTEGER },
+              playerApprovalDelta: { type: Type.INTEGER },
+              playerTechDelta: { type: Type.NUMBER },
+              playerPopulationPctDelta: { type: Type.NUMBER },
+              globalRelationDelta: { type: Type.INTEGER },
+              targetImpacts: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    countryId: { type: Type.STRING },
+                    countryName: { type: Type.STRING },
+                    relationDelta: { type: Type.INTEGER },
+                    gdpPctDelta: { type: Type.NUMBER },
+                    armyDeltaK: { type: Type.INTEGER },
+                    stabilityDelta: { type: Type.INTEGER },
+                    populationPctDelta: { type: Type.NUMBER },
+                    declareWar: { type: Type.BOOLEAN },
+                    makePeace: { type: Type.BOOLEAN },
+                    formAlliance: { type: Type.BOOLEAN },
+                    formEconomicUnion: { type: Type.BOOLEAN },
+                    signTradeDeal: { type: Type.BOOLEAN },
+                    signNonAggression: { type: Type.BOOLEAN },
+                    nuclearStrike: { type: Type.BOOLEAN },
+                  },
+                  required: [
+                    "countryId",
+                    "countryName",
+                    "relationDelta",
+                    "gdpPctDelta",
+                    "armyDeltaK",
+                    "stabilityDelta",
+                    "populationPctDelta",
+                  ],
+                },
+              },
+            },
+            required: [
+              "summaryTitle",
+              "narrative",
+              "category",
+              "playerTreasuryDelta",
+              "playerGdpPctDelta",
+              "playerArmyDeltaK",
+              "playerStabilityDelta",
+              "playerApprovalDelta",
+              "playerTechDelta",
+              "playerPopulationPctDelta",
+              "globalRelationDelta",
+              "targetImpacts",
+            ],
+          },
+        },
+      });
+
+      const parsed = JSON.parse((response.text ?? "{}").trim());
+      return res.json({ usedAi: true, effect: { ...parsed, usedAi: true } });
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      console.warn("Gemini action fallback triggered:", errMsg);
+      return res.json({ usedAi: false, effect: null });
+    }
+  });
+
   const apiOnly = process.env.API_ONLY === "true";
 
   if (!apiOnly && process.env.NODE_ENV !== "production") {
@@ -426,7 +593,12 @@ Génère UN événement géopolitique mondial marquant et réaliste en français
         res.json({
           ok: true,
           service: "Orbis Diplomatica Backend API",
-          endpoints: ["/api/health", "/api/diplomacy/message", "/api/simulation/crisis"],
+          endpoints: [
+            "/api/health",
+            "/api/diplomacy/message",
+            "/api/simulation/crisis",
+            "/api/simulation/action",
+          ],
         });
       });
     }

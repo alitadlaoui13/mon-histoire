@@ -13,7 +13,9 @@ export const WorldChronicle: React.FC<WorldChronicleProps> = ({
   onFocusCountry,
   onResolveProposal,
 }) => {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth < 1024 : false
+  );
   const [tab, setTab] = useState<'events' | 'inbox'>('events');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
 
@@ -32,8 +34,8 @@ export const WorldChronicle: React.FC<WorldChronicleProps> = ({
 
   return (
     <div
-      className={`absolute bottom-3 left-3 z-20 w-[340px] sm:w-[400px] bg-[#0D1523]/95 border border-white/10 rounded-lg shadow-2xl overflow-hidden transition-all ${
-        collapsed ? 'h-10' : 'h-[285px]'
+      className={`absolute bottom-3 left-3 z-20 w-[calc(100vw-24px)] sm:w-[370px] lg:w-[400px] bg-[#0B1528]/95 border border-amber-400/25 rounded-xl shadow-2xl overflow-hidden transition-all ${
+        collapsed ? 'h-10' : 'h-[215px] sm:h-[245px] lg:h-[285px]'
       } flex flex-col`}
     >
       {/* Header Bar */}
