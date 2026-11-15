@@ -3,8 +3,18 @@ import App from './App.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import './index.css';
 
-createRoot(document.getElementById('root')!).render(
-  <ErrorBoundary>
-    <App />
-  </ErrorBoundary>
-);
+declare global {
+  interface Window {
+    __ORBIS_BOOTED__?: boolean;
+  }
+}
+
+const rootEl = document.getElementById('root');
+if (rootEl) {
+  window.__ORBIS_BOOTED__ = true;
+  createRoot(rootEl).render(
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+  );
+}

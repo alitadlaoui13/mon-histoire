@@ -26,7 +26,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   onResumeSaved,
 }) => {
   return (
-    <div className="relative h-screen w-screen bg-[#060C16] text-slate-100 overflow-hidden flex flex-col justify-between">
+    <div className="relative h-screen w-screen bg-[#060C16] text-slate-100 overflow-y-auto overflow-x-hidden flex flex-col justify-between">
       {/* Cartographic Illuminated Backdrop */}
       <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
         <svg

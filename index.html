@@ -1,8 +1,8 @@
 <!doctype html>
-<html lang="fr" class="dark">
+<html lang="fr" class="dark" style="background-color:#09101B;color:#F1F5F9;">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Orbis Diplomatica — Stratégie Géopolitique Mondiale</title>
     <meta
       name="description"
@@ -22,8 +22,64 @@
       rel="stylesheet"
     />
   </head>
-  <body class="bg-[#09101B] text-slate-100 antialiased selection:bg-amber-500/30 selection:text-amber-100">
-    <div id="root"></div>
+  <body
+    class="bg-[#09101B] text-slate-100 antialiased selection:bg-amber-500/30 selection:text-amber-100"
+    style="background-color:#09101B;color:#F1F5F9;margin:0;min-height:100vh;"
+  >
+    <div id="root">
+      <div
+        id="orbis-boot-fallback"
+        style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;font-family:-apple-system,BlinkMacSystemFont,'Plus Jakarta Sans',sans-serif;background:#09101B;color:#F1F5F9;"
+      >
+        <div style="font-size:24px;font-weight:600;letter-spacing:-0.02em;color:#F8FAFC;margin-bottom:8px;">
+          Orbis Diplomatica
+        </div>
+        <div id="orbis-boot-status" style="font-size:14px;color:#94A3B8;max-width:440px;line-height:1.5;">
+          Chargement de la carte mondiale et du moteur de simulation…
+        </div>
+        <div id="orbis-boot-actions" style="margin-top:16px;display:none;">
+          <button
+            type="button"
+            onclick="window.location.replace(window.location.pathname + '?v=' + Date.now())"
+            style="background:#F59E0B;color:#09101B;border:none;border-radius:8px;padding:10px 18px;font-weight:600;font-size:14px;cursor:pointer;"
+          >
+            Recharger sans cache
+          </button>
+        </div>
+      </div>
+    </div>
+    <script>
+      (function () {
+        window.__ORBIS_BOOTED__ = false;
+        function showBootError(msg) {
+          if (window.__ORBIS_BOOTED__) return;
+          var statusEl = document.getElementById('orbis-boot-status');
+          var actionsEl = document.getElementById('orbis-boot-actions');
+          if (statusEl) {
+            statusEl.style.color = '#FCA5A5';
+            statusEl.textContent = msg;
+          }
+          if (actionsEl) {
+            actionsEl.style.display = 'block';
+          }
+        }
+        window.addEventListener('error', function (ev) {
+          var detail = ev && ev.message ? ev.message : 'Erreur de chargement du script.';
+          showBootError('Impossible de démarrer l’application : ' + detail);
+        });
+        window.addEventListener('unhandledrejection', function (ev) {
+          var reason = ev && ev.reason ? (ev.reason.message || String(ev.reason)) : 'Erreur asynchrone.';
+          showBootError('Erreur d’initialisation : ' + reason);
+        });
+        setTimeout(function () {
+          if (!window.__ORBIS_BOOTED__) {
+            showBootError(
+              'Le chargement semble bloqué (souvent dû au cache Safari ou à une version de navigateur ancienne). Essayez de recharger sans cache.'
+            );
+          }
+        }, 8000);
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

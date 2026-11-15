@@ -10,6 +10,7 @@ export default defineConfig(({command}) => {
     build: {
       outDir: 'dist',
       emptyOutDir: true,
+      target: ['es2020', 'safari14'],
     },
     resolve: {
       alias: {
