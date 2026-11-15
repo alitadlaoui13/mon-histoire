@@ -1,5 +1,6 @@
 import "dotenv/config";
 import express from "express";
+import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
@@ -152,9 +153,58 @@ function generateContextualFallbackReply(payload: DiplomacyPayload) {
   };
 }
 
+function isAllowedOrigin(origin: string | undefined): boolean {
+  if (!origin) return false;
+  const configured = (process.env.ALLOWED_ORIGINS || "")
+    .split(",")
+    .map((item) => item.trim().replace(/\/+$/, ""))
+    .filter(Boolean);
+
+  if (configured.length > 0) {
+    return configured.includes("*") || configured.includes(origin);
+  }
+
+  try {
+    const parsed = new URL(origin);
+    const host = parsed.hostname.toLowerCase();
+    return (
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host.endsWith(".github.io") ||
+      host.endsWith(".run.app")
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function startServer() {
   const app = express();
   app.use(express.json({ limit: "2mb" }));
+
+  // CORS for decoupled static frontends (e.g. GitHub Pages)
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    if (origin && isAllowedOrigin(origin)) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Vary", "Origin");
+    }
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+    if (req.method === "OPTIONS") {
+      return res.sendStatus(204);
+    }
+    return next();
+  });
+
+  app.get("/api/health", (_req, res) => {
+    res.json({
+      ok: true,
+      service: "orbis-diplomatica-api",
+      aiConfigured: Boolean(getAiClient()),
+    });
+  });
 
   // Diplomatic chat endpoint powered by Gemini with seamless heuristic fallback
   app.post("/api/diplomacy/message", async (req, res) => {
@@ -354,7 +404,9 @@ Génère UN événement géopolitique mondial marquant et réaliste en français
     return res.json({ usedAi: false, event: pick });
   });
 
-  if (process.env.NODE_ENV !== "production") {
+  const apiOnly = process.env.API_ONLY === "true";
+
+  if (!apiOnly && process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -362,11 +414,22 @@ Génère UN événement géopolitique mondial marquant et réaliste en français
     app.use(vite.middlewares);
   } else {
     const distPath = path.resolve(__dirname, "dist");
-    app.use("/mon-histoire", express.static(distPath));
-    app.use(express.static(distPath));
-    app.get("/{*path}", (_req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
-    });
+    const hasDist = !apiOnly && fs.existsSync(path.join(distPath, "index.html"));
+    if (hasDist) {
+      app.use("/mon-histoire", express.static(distPath));
+      app.use(express.static(distPath));
+      app.get("/{*path}", (_req, res) => {
+        res.sendFile(path.join(distPath, "index.html"));
+      });
+    } else {
+      app.get("/", (_req, res) => {
+        res.json({
+          ok: true,
+          service: "Orbis Diplomatica Backend API",
+          endpoints: ["/api/health", "/api/diplomacy/message", "/api/simulation/crisis"],
+        });
+      });
+    }
   }
 
   app.listen(PORT, "0.0.0.0", () => {

@@ -52,6 +52,7 @@ import {
   buildLocalDiplomaticReply,
   DiplomacyReplyResult,
 } from './engine/diplomacyFallback';
+import { buildApiUrl, shouldAttemptBackendApi } from './lib/apiConfig';
 import { createInitialWorldState, getMapData } from './engine/worldInit';
 import {
   CountryPolicy,
@@ -512,34 +513,36 @@ export default function App() {
         );
 
         let data: DiplomacyReplyResult | null = null;
-        try {
-          const res = await fetch('/api/diplomacy/message', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              playerCountry: player,
-              targetCountry: target,
-              relation: relationVal,
-              isAtWar: isAtWarVal,
-              isAllied: isAlliedVal,
-              sameEconomicUnion: sameEcoVal,
-              message,
-              history: existingHistory.map((m) => ({
-                sender: m.senderLabel,
-                text: m.text,
-              })),
-              currentDateLabel: dateLabel,
-            }),
-          });
-          const contentType = res.headers.get('content-type') || '';
-          if (res.ok && contentType.includes('application/json')) {
-            const parsed = (await res.json()) as DiplomacyReplyResult;
-            if (parsed?.reply) {
-              data = parsed;
+        if (shouldAttemptBackendApi()) {
+          try {
+            const res = await fetch(buildApiUrl('/api/diplomacy/message'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                playerCountry: player,
+                targetCountry: target,
+                relation: relationVal,
+                isAtWar: isAtWarVal,
+                isAllied: isAlliedVal,
+                sameEconomicUnion: sameEcoVal,
+                message,
+                history: existingHistory.map((m) => ({
+                  sender: m.senderLabel,
+                  text: m.text,
+                })),
+                currentDateLabel: dateLabel,
+              }),
+            });
+            const contentType = res.headers.get('content-type') || '';
+            if (res.ok && contentType.includes('application/json')) {
+              const parsed = (await res.json()) as DiplomacyReplyResult;
+              if (parsed?.reply) {
+                data = parsed;
+              }
             }
+          } catch {
+            // Static hosting or unreachable backend fallback below
           }
-        } catch {
-          // Static hosting (GitHub Pages) fallback below
         }
 
         const resolvedData: DiplomacyReplyResult =
@@ -615,26 +618,28 @@ export default function App() {
         .map((c) => ({ nameFr: c.nameFr, gdp: Math.round(c.gdp) }));
 
       let eventData = null;
-      try {
-        const res = await fetch('/api/simulation/crisis', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            playerCountry: player,
-            topPowers,
-            currentDateLabel: formatDateFr(world.year, world.month),
-            activeWarsCount: world.wars.length,
-          }),
-        });
-        const contentType = res.headers.get('content-type') || '';
-        if (res.ok && contentType.includes('application/json')) {
-          const json = await res.json();
-          if (json?.event) {
-            eventData = json.event;
+      if (shouldAttemptBackendApi()) {
+        try {
+          const res = await fetch(buildApiUrl('/api/simulation/crisis'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              playerCountry: player,
+              topPowers,
+              currentDateLabel: formatDateFr(world.year, world.month),
+              activeWarsCount: world.wars.length,
+            }),
+          });
+          const contentType = res.headers.get('content-type') || '';
+          if (res.ok && contentType.includes('application/json')) {
+            const json = await res.json();
+            if (json?.event) {
+              eventData = json.event;
+            }
           }
+        } catch {
+          // Static hosting or unreachable backend fallback below
         }
-      } catch {
-        // Static hosting (GitHub Pages) fallback below
       }
 
       setWorld((prev) => ({
