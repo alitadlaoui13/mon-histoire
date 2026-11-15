@@ -52,7 +52,7 @@ function getRelationColor(score: number, isAtWar: boolean): string {
   return '#993842';
 }
 
-export const WorldMap: React.FC<WorldMapProps> = ({
+export const WorldMap: React.FC<WorldMapProps> = React.memo(({
   features,
   spherePath,
   graticulePath,
@@ -793,4 +793,5 @@ export const WorldMap: React.FC<WorldMapProps> = ({
       )}
     </div>
   );
-};
+});
+

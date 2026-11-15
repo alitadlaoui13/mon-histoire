@@ -23,6 +23,7 @@ interface TerritoryPickerModalProps {
   world: WorldState;
   config: CustomCountryConfig;
   initialTool?: PickerToolMode;
+  tutorialActive?: boolean;
   onUpdateConfig: React.Dispatch<React.SetStateAction<CustomCountryConfig>>;
   onConfirm: () => void;
   onCancel: () => void;
@@ -35,11 +36,13 @@ export const TerritoryPickerModal: React.FC<TerritoryPickerModalProps> = ({
   world,
   config,
   initialTool = 'relocate',
+  tutorialActive = false,
   onUpdateConfig,
   onConfirm,
   onCancel,
 }) => {
   const [tool, setTool] = useState<PickerToolMode>(initialTool);
+  const [hasInteractedOnMap, setHasInteractedOnMap] = useState(false);
   const [focusTarget, setFocusTarget] = useState<[number, number] | null>(() => {
     const first = config.territoryIds[0] ? world.countries[config.territoryIds[0]] : null;
     return first ? [...first.centroid] : null;
@@ -58,12 +61,14 @@ export const TerritoryPickerModal: React.FC<TerritoryPickerModalProps> = ({
     if (!world.countries[tid]) return;
 
     if (tool === 'relocate') {
+      setHasInteractedOnMap(true);
       onUpdateConfig((prev) => ({
         ...prev,
         territoryIds: [tid],
         capitalCoords: svgCoords ?? world.countries[tid].centroid,
       }));
     } else if (tool === 'toggle') {
+      setHasInteractedOnMap(true);
       onUpdateConfig((prev) => {
         const exists = prev.territoryIds.includes(tid);
         if (exists) {
@@ -83,6 +88,7 @@ export const TerritoryPickerModal: React.FC<TerritoryPickerModalProps> = ({
 
   const handleBrushTerritory = (tid: string) => {
     if (!world.countries[tid]) return;
+    setHasInteractedOnMap(true);
     if (tool === 'brush-add') {
       onUpdateConfig((prev) => {
         if (prev.territoryIds.includes(tid)) return prev;
@@ -230,7 +236,13 @@ export const TerritoryPickerModal: React.FC<TerritoryPickerModalProps> = ({
 
       {/* Instruction Ribbon */}
       <div className="px-4 py-2 bg-[#111D32] border-b border-white/10 text-xs text-amber-200 flex items-center justify-between gap-3 shrink-0">
-        <span>{toolHint}</span>
+        <span>
+          {tutorialActive && !hasInteractedOnMap
+            ? 'Guide · Étape 4 : Touchez ou cliquez sur un pays de la carte pour installer votre nation.'
+            : tutorialActive && hasInteractedOnMap
+              ? 'Parfait ! Cliquez maintenant sur « Valider l’emplacement » en bas à droite.'
+              : toolHint}
+        </span>
         <span className="hidden md:inline text-[11px] text-slate-400 whitespace-nowrap">
           Zoom : molette, deux doigts ou boutons + / −
         </span>
@@ -290,7 +302,11 @@ export const TerritoryPickerModal: React.FC<TerritoryPickerModalProps> = ({
           <button
             type="button"
             onClick={onConfirm}
-            className="min-h-[44px] px-5 py-2 text-sm font-semibold bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-md flex items-center gap-2 shadow-[0_0_24px_rgba(245,158,11,0.25)] cursor-pointer whitespace-nowrap"
+            className={`min-h-[44px] px-5 py-2 text-sm font-semibold bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-md flex items-center gap-2 shadow-[0_0_24px_rgba(245,158,11,0.25)] cursor-pointer whitespace-nowrap transition-all ${
+              tutorialActive && hasInteractedOnMap
+                ? 'ring-2 ring-amber-200 shadow-[0_0_28px_rgba(251,191,36,0.65)] scale-[1.03]'
+                : ''
+            }`}
           >
             <Check className="w-4 h-4" />
             <span>Valider l’emplacement ({config.territoryIds.length})</span>

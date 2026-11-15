@@ -18,9 +18,9 @@ import { CrisisModal } from './components/CrisisModal';
 import { WarOutcomeModal } from './components/WarOutcomeModal';
 import { YearSimulatorBar } from './components/YearSimulatorBar';
 import { SimulationSummaryModal } from './components/SimulationSummaryModal';
-import { WelcomeScreen } from './components/WelcomeScreen';
+import { GameUiSettings, WelcomeScreen } from './components/WelcomeScreen';
 import { StartChoiceScreen } from './components/StartChoiceScreen';
-import { CustomNationPanel } from './components/CustomNationPanel';
+import { CustomNationPanel, TutorialStepId } from './components/CustomNationPanel';
 import { CountryFlag, PRESET_NATION_IMAGES } from './components/CountryFlag';
 import { PickerToolMode, TerritoryPickerModal } from './components/TerritoryPickerModal';
 import {
@@ -96,6 +96,7 @@ function createDefaultCustomConfig(): CustomCountryConfig {
 }
 
 const STORAGE_KEY = 'orbis_diplomatica_save_v1';
+const SETTINGS_STORAGE_KEY = 'orbis_diplomatica_settings_v1';
 
 export default function App() {
   const { features, spherePath, graticulePath } = useMemo(() => getMapData(), []);
@@ -127,6 +128,8 @@ export default function App() {
   const [customMapClickMode, setCustomMapClickMode] = useState<'relocate' | 'expand'>('relocate');
   const [isMapPickerOpen, setIsMapPickerOpen] = useState(false);
   const [mapPickerInitialTool, setMapPickerInitialTool] = useState<PickerToolMode>('relocate');
+  const [territoryConfirmVersion, setTerritoryConfirmVersion] = useState(0);
+  const [isCustomTutorialTerritoryStep, setIsCustomTutorialTerritoryStep] = useState(false);
   const [customConfig, setCustomConfig] = useState<CustomCountryConfig>(() =>
     createDefaultCustomConfig()
   );
@@ -140,6 +143,30 @@ export default function App() {
   const [isGeneratingCrisis, setIsGeneratingCrisis] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [focusTarget, setFocusTarget] = useState<[number, number] | null>(null);
+  const [uiSettings, setUiSettings] = useState<GameUiSettings>(() => {
+    try {
+      const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<GameUiSettings>;
+        return {
+          animationsEnabled: parsed.animationsEnabled ?? true,
+          autoPlaySpeedMs:
+            typeof parsed.autoPlaySpeedMs === 'number' ? parsed.autoPlaySpeedMs : 2400,
+        };
+      }
+    } catch {
+      // Ignore invalid settings
+    }
+    return { animationsEnabled: true, autoPlaySpeedMs: 2400 };
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(uiSettings));
+    } catch {
+      // Ignore quota errors
+    }
+  }, [uiSettings]);
 
   // Persist game state
   useEffect(() => {
@@ -187,9 +214,16 @@ export default function App() {
         if (prev.phase !== 'PLAYING' || prev.pendingCrisis || prev.pendingWarOutcome) return prev;
         return advanceMonth(prev);
       });
-    }, 2400);
+    }, uiSettings.autoPlaySpeedMs);
     return () => clearInterval(timer);
-  }, [autoPlay, isSimulating, world.phase, world.pendingCrisis, world.pendingWarOutcome]);
+  }, [
+    autoPlay,
+    isSimulating,
+    world.phase,
+    world.pendingCrisis,
+    world.pendingWarOutcome,
+    uiSettings.autoPlaySpeedMs,
+  ]);
 
   const handleStartSimulation = useCallback(() => {
     if (
@@ -303,11 +337,20 @@ export default function App() {
     setSetupMode('CHOOSE_MODE');
     setCustomMapClickMode('relocate');
     setIsMapPickerOpen(false);
+    setTerritoryConfirmVersion(0);
+    setIsCustomTutorialTerritoryStep(false);
     setCustomConfig(createDefaultCustomConfig());
     setFocusTarget(null);
     localStorage.removeItem(STORAGE_KEY);
     setWorld(createInitialWorldState());
   }, []);
+
+  const handleTutorialStateChange = useCallback(
+    (isActive: boolean, stepId: TutorialStepId) => {
+      setIsCustomTutorialTerritoryStep(isActive && stepId === 'territory');
+    },
+    []
+  );
 
   const handleUpdatePolicy = useCallback((policy: Partial<CountryPolicy>) => {
     setWorld((prev) => updatePlayerPolicy(prev, policy));
@@ -700,22 +743,6 @@ export default function App() {
         }
       : null;
 
-  if (showWelcome) {
-    return (
-      <WelcomeScreen
-        features={features}
-        spherePath={spherePath}
-        graticulePath={graticulePath}
-        countriesCount={countriesCount}
-        savedCampaign={savedCampaign}
-        onStartNewSelection={() => {
-          handleResetGame();
-        }}
-        onResumeSaved={() => setShowWelcome(false)}
-      />
-    );
-  }
-
   const showingForeign =
     world.phase === 'PLAYING' &&
     world.selectedCountryId &&
@@ -724,6 +751,50 @@ export default function App() {
 
   const isChoosingStartMode = world.phase === 'SELECT_NATION' && setupMode === 'CHOOSE_MODE';
   const isCreatingCustom = world.phase === 'SELECT_NATION' && setupMode === 'CREATE_CUSTOM';
+
+  const memoizedCustomPreview = useMemo(() => {
+    if (!isCreatingCustom) return null;
+    return {
+      territoryIds: customConfig.territoryIds,
+      nameFr: customConfig.nameFr,
+      color: customConfig.color,
+      capital: customConfig.capital,
+      capitalCoords: customConfig.capitalCoords,
+    };
+  }, [
+    isCreatingCustom,
+    customConfig.territoryIds,
+    customConfig.nameFr,
+    customConfig.color,
+    customConfig.capital,
+    customConfig.capitalCoords,
+  ]);
+
+  if (showWelcome) {
+    return (
+      <WelcomeScreen
+        features={features}
+        spherePath={spherePath}
+        graticulePath={graticulePath}
+        countriesCount={countriesCount}
+        savedCampaign={savedCampaign}
+        settings={uiSettings}
+        onUpdateSettings={setUiSettings}
+        onClearSavedCampaign={() => {
+          try {
+            localStorage.removeItem(STORAGE_KEY);
+          } catch {
+            // Ignore storage errors
+          }
+          setWorld(createInitialWorldState());
+        }}
+        onStartNewSelection={() => {
+          handleResetGame();
+        }}
+        onResumeSaved={() => setShowWelcome(false)}
+      />
+    );
+  }
 
   return (
     <div className="h-screen w-screen flex flex-col bg-[#080E18] text-slate-100 overflow-hidden">
@@ -899,17 +970,7 @@ export default function App() {
               mapMode={mapMode}
               onSelectCountry={isCreatingCustom ? handleCustomMapClick : handleSelectCountry}
               focusTarget={focusTarget}
-              customPreview={
-                isCreatingCustom
-                  ? {
-                      territoryIds: customConfig.territoryIds,
-                      nameFr: customConfig.nameFr,
-                      color: customConfig.color,
-                      capital: customConfig.capital,
-                      capitalCoords: customConfig.capitalCoords,
-                    }
-                  : null
-              }
+              customPreview={memoizedCustomPreview}
             />
 
             {/* Map Mode Segmented Control (Top-Right inside Map) */}
@@ -988,6 +1049,9 @@ export default function App() {
               <CustomNationPanel
                 world={world}
                 config={customConfig}
+                territoryConfirmVersion={territoryConfirmVersion}
+                tutorialEnabledByDefault={true}
+                onTutorialStateChange={handleTutorialStateChange}
                 onChangeConfig={setCustomConfig}
                 onFocusTerritory={handleFocusCountry}
                 onToggleTerritory={handleToggleCustomTerritory}
@@ -1080,9 +1144,11 @@ export default function App() {
           world={world}
           config={customConfig}
           initialTool={mapPickerInitialTool}
+          tutorialActive={isCustomTutorialTerritoryStep}
           onUpdateConfig={setCustomConfig}
           onConfirm={() => {
             setIsMapPickerOpen(false);
+            setTerritoryConfirmVersion((v) => v + 1);
             const anchorId = customConfig.territoryIds[0];
             const anchor = anchorId ? world.countries[anchorId] : null;
             if (anchor) {
